@@ -1,0 +1,9 @@
+{
+  "name": "lead-generation",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "postCreateCommand": "pip install -e '.[dev]' && ([ -f .env ] || cp .env.example .env)",
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": { "label": "Interface", "onAutoForward": "openBrowser" }
+  }
+}

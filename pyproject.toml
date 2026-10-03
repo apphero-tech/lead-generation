@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leadgen"
+version = "0.1.0"
+description = "Builds per-state lists of US university contacts from free public sources"
+requires-python = ">=3.9"
+dependencies = ["requests>=2.28", "beautifulsoup4>=4.11", "openpyxl>=3.1", "flask>=2.2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+tool = "leadgen.cli:main"
+leadgen = "leadgen.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+leadgen = ["systems.json", "first_names.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

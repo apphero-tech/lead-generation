@@ -1,0 +1,5 @@
+{
+  "_comment": "Websites of multi-campus system offices, keyed by the IPEDS F1SYSNAM value. Systems missing here are listed in the export with manual_check_needed = yes.",
+  "State University System of Florida": "https://www.flbog.edu/",
+  "Florida State Board of Education": "https://www.fldoe.org/schools/higher-ed/fl-college-system/"
+}
