@@ -180,6 +180,13 @@ PROFILES: List[Profile] = [
     ),
 ]
 
+# Last resort when an institution shows nobody for any target profile: any named staff member.
+OTHER = Profile(
+    "other", "Other staff", "Other staff (no target role found)", exact=(),
+    duties="Staff member named on the institution's website; no one there matches a target profile.",
+)
+PROFILES.append(OTHER)
+
 PROFILE_BY_ID = {p.id: p for p in PROFILES}
 
 # A line must contain one of these words to be considered a job title at all.
@@ -252,3 +259,32 @@ def best_profile_quality(matches: List[Tuple[Profile, str]], profile_id: str) ->
         if p.id == profile_id:
             return q
     return None
+
+
+# Job words for the last-resort pass, most senior first (used to rank who is listed).
+STAFF_RANKS = [
+    r"\b(president|chancellor|provost|principal|superintendent|ceo|director|dean)\b",
+    r"\b(chief|head|manager|supervisor|chair|administrator|registrar|bursar|controller|treasurer)\b",
+    r"\b(coordinator|officer|lead|liaison|recruiter|representative)\b",
+    r"\b(counselor|counsellor|advisor|adviser|specialist|analyst|librarian|accountant|secretary)\b",
+    r"\b(assistant|associate)\b",
+]
+_STAFF_RANKS = [re.compile(x) for x in STAFF_RANKS]
+NOT_STAFF = re.compile(r"\b(student|alumn\w*|graduate|class of|intern|volunteer|trustee|board member|patient|parent)\b")
+
+
+def staff_rank(title: str) -> Optional[int]:
+    """0 (most senior) .. 4 if the title is a staff job title, else None."""
+    if not title or len(title) > 120:
+        return None
+    t = normalize_title(title)
+    if SENTENCE.search(t) or HEADING.search(t) or NOT_STAFF.search(t) or len(t.split()) > 12:
+        return None
+    for rank, rx in enumerate(_STAFF_RANKS):
+        if rx.search(t):
+            return rank
+    return None
+
+
+def match_staff(title: str) -> List[Tuple[Profile, str]]:
+    return [(OTHER, "fallback")] if staff_rank(title) is not None else []

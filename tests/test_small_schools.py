@@ -52,3 +52,11 @@ def test_ipeds_phone_format():
     assert format_us_phone("9544000620") == "(954) 400-0620"
     assert format_us_phone("85098357003632") == "(850) 983-5700 ext. 3632"
     assert format_us_phone("-1") == ""
+
+
+def test_broad_staff_when_no_target_role():
+    from leadgen.pipeline import broad_staff
+    html = ("<div><h3>Ann Lee</h3><p>Guidance Counselor</p></div><div><h3>Bob Ray</h3><p>Nursing Director</p></div>"
+            "<div><h3>Cy Moe</h3><p>Student Ambassador</p></div>")
+    got = [(c.first_name, c.profile_id) for c in broad_staff([("https://s.edu/staff", html)], 15)]
+    assert got == [("Bob", "other"), ("Ann", "other")]  # most senior first; students excluded

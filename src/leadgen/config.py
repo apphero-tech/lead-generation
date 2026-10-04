@@ -29,6 +29,8 @@ class Settings:
     # Keep at most this many people per target profile per institution (0 = keep everyone, e.g.
     # one Director of Development per college).
     max_candidates_per_profile: int = 0
+    # When nobody matches any target profile, list up to this many other named staff members.
+    broad_max_people: int = 15
     # Look people up in the institution's own directory search form when one is found.
     use_directory_search: bool = True
     # A source older than this is flagged for manual check.

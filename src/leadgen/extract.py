@@ -118,14 +118,14 @@ def format_phone(m: re.Match) -> str:
     return f"({m.group(1)}) {m.group(2)}-{m.group(3)}"
 
 
-def find_candidates(lines: List[str], url: str) -> List[Candidate]:
+def find_candidates(lines: List[str], url: str, matcher=match_title) -> List[Candidate]:
     out: List[Candidate] = []
     if NON_STAFF_PAGE.search(url):
         return out
     names_at = [line_name(l) for l in lines]
     for i, line in enumerate(lines):
         name, title = split_name_title(strip_contact(line))
-        matches = match_title(title)
+        matches = matcher(title)
         if not matches:
             continue
         name_idx = i

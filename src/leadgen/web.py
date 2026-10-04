@@ -136,10 +136,21 @@ class JobRunner:
             final = "failed"
         try:
             if insts:
-                prog.update(stage="Création du fichier Excel")
-                name = f"contacts_{state}_{slug(label)}_{datetime.now():%Y%m%d-%H%M}.xlsx"
-                path = export_state(conn, state, self.s.out_dir, [i["unitid"] for i in insts], name)
-                prog.update(file=str(path))
+                ids = [i["unitid"] for i in insts]
+                counts = dict(conn.execute(
+                    f"SELECT unitid, COUNT(*) FROM persons WHERE unitid IN ({','.join('?' * len(ids))}) GROUP BY unitid",
+                    ids).fetchall())
+                processed = insts[: prog.snapshot()["institutions_done"]]
+                empty = [i["name"] for i in processed if not counts.get(i["unitid"])]
+                total = sum(counts.values())
+                prog.update(total_contacts=total, empty_institutions=empty)
+                if total:
+                    prog.update(stage="Création du fichier Excel")
+                    name = f"contacts_{state}_{slug(label)}_{datetime.now():%Y%m%d-%H%M}.xlsx"
+                    path = export_state(conn, state, self.s.out_dir, ids, name)
+                    prog.update(file=str(path))
+                else:
+                    log.info("Job '%s': nobody found, no Excel file created", label)
         finally:
             prog.update(status=final, stage="", current="", finished_at=time.time())
             conn.close()
@@ -173,7 +184,9 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .status{margin:10px 0 0;color:var(--muted);font-size:14px;min-height:21px}
 .done{color:var(--ok);font-weight:600}.err{color:var(--err);font-weight:600}
 a.download{display:inline-block;margin-top:14px;text-decoration:none}
-ul.files{list-style:none;padding:0;margin:0}ul.files li{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+ul.files{list-style:none;padding:0;margin:0}ul.files li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+ul.files .meta{display:flex;align-items:center;gap:10px;white-space:nowrap;color:var(--muted)}
+button.del{padding:4px 10px;font-size:13px;font-weight:500;border-color:var(--err);color:var(--err);background:transparent}
 ul.files li:first-child{border-top:0}ul.files a{color:var(--accent);word-break:break-all}
 .hidden{display:none}
 </style></head><body><main>
@@ -259,11 +272,23 @@ function poll(){clearTimeout(timer);api('/api/jobs/'+job).then(d=>{
     $('cancel').classList.add('hidden');$('start').disabled=false;
     const msg={done:'<span class="done">Terminé</span>',cancelled:'<span class="err">Arrêté</span>',failed:'<span class="err">Erreur : '+(d.error||'')+'</span>'}[d.status];
     $('status').innerHTML=msg+' en '+fmt(d.elapsed)+'.';
-    if(d.file)$('result').innerHTML='<a class="download" href="/api/jobs/'+job+'/download"><button class="primary">Télécharger le fichier Excel</button></a>';
+    const empty=d.empty_institutions||[];let html='';
+    if(d.file){html='<a class="download" href="/api/jobs/'+job+'/download"><button class="primary">Télécharger le fichier Excel</button></a>'+
+      ' <span class="hint">'+d.total_contacts+' contact(s)</span>';
+      if(empty.length)html+='<p class="hint" style="margin-top:12px">Aucune personne trouvée pour '+empty.length+' établissement(s) : '+empty.join(', ')+'.</p>';
+    }else if(d.status==='done'){
+      html='<p class="err" style="margin-top:12px">Aucune personne trouvée'+(empty.length===1?' pour '+empty[0]:(empty.length?' pour ces '+empty.length+' établissements':''))+
+        '. Le site ne publie aucun nom de personnel et aucun dirigeant n’est connu. Aucun fichier Excel n’a été créé.</p>';
+    }
+    $('result').innerHTML=html;
     loadFiles()}
 }).catch(()=>{timer=setTimeout(poll,3000)})}
 async function loadFiles(){const f=await api('/api/files');$('files').innerHTML=f.length?f.map(x=>
-  '<li><a href="/files/'+encodeURIComponent(x.path)+'">'+x.name+'</a><span>'+x.date+'</span></li>').join(''):'<li>Aucun fichier pour l’instant.</li>'}
+  '<li><a href="/files/'+encodeURIComponent(x.path)+'">'+x.name+'</a><span class="meta">'+x.date+
+  ' <button class="del" data-path="'+encodeURIComponent(x.path)+'" data-name="'+x.name+'">Supprimer</button></span></li>').join(''):'<li>Aucun fichier pour l’instant.</li>'}
+$('files').onclick=async e=>{const b=e.target.closest('button.del');if(!b)return;
+  if(!confirm('Supprimer définitivement '+b.dataset.name+' ?'))return;
+  b.disabled=true;await fetch('/files/'+b.dataset.path,{method:'DELETE'});loadFiles()};
 init();
 </script></body></html>"""
 
@@ -371,11 +396,21 @@ def create_app(settings: Settings) -> Flask:
                         "date": datetime.fromtimestamp(p.stat().st_mtime).strftime("%d/%m/%Y %H:%M")})
         return jsonify(out)
 
+    def safe_file(rel: str):
+        path = (settings.out_dir / rel).resolve()
+        if settings.out_dir.resolve() not in path.parents or path.suffix != ".xlsx" or not path.exists():
+            abort(404)
+        return path
+
     @app.get("/files/<path:rel>")
     def get_file(rel):
-        path = (settings.out_dir / rel).resolve()
-        if settings.out_dir.resolve() not in path.parents or not path.exists():
-            abort(404)
-        return send_file(path, as_attachment=True)
+        return send_file(safe_file(rel), as_attachment=True)
+
+    @app.delete("/files/<path:rel>")
+    def delete_file(rel):
+        path = safe_file(rel)
+        path.unlink()
+        log.info("Deleted %s", path)
+        return jsonify(ok=True)
 
     return app

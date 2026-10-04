@@ -38,3 +38,13 @@ def test_city_variants_and_radius(tmp_path):
     assert names(0) == ["A"]
     assert names(15) == ["A", "B"]      # Lauderhill is ~8 km away
     assert names(50) == ["A", "B", "C"]  # Miami is ~40 km away
+
+
+def test_delete_generated_file(tmp_path):
+    c = client(tmp_path)
+    f = tmp_path / "out" / "FL" / "contacts_FL_x.xlsx"
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b"x")
+    assert c.delete("/files/FL/contacts_FL_x.xlsx").status_code == 200
+    assert not f.exists()
+    assert c.delete("/files/../t.db").status_code == 404  # never outside the output folder

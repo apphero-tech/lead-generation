@@ -16,7 +16,7 @@ from .directory import Directory, DirectoryForm
 from .email_pattern import deduce, detect_pattern, name_in_email
 from .extract import Candidate, find_candidates, name_email_pairs, page_lines
 from .names import name_key, parse_name
-from .profiles import PROFILE_BY_ID, match_title
+from .profiles import PROFILE_BY_ID, match_staff, match_title, staff_rank
 
 log = logging.getLogger(__name__)
 
@@ -111,6 +111,18 @@ def filter_heads(cands: List[Candidate], website: str) -> List[Candidate]:
         return bool(HEAD_TITLE.search(c.found_title)) and (
             host in (base, "www." + base) or host.startswith("president."))
     return [c for c in cands if c.profile_id != "head" or official(c)]
+
+
+def broad_staff(pages, limit: int) -> List[Candidate]:
+    """Last-resort pass: any named staff member with a job title, ranked by seniority."""
+    found: Dict[str, Candidate] = {}
+    for url, html in pages:
+        for c in find_candidates(page_lines(html), url, matcher=match_staff):
+            key = name_key(c.first_name, c.last_name)
+            if key not in found or (staff_rank(c.found_title) or 9) < (staff_rank(found[key].found_title) or 9):
+                found[key] = c
+    ranked = sorted(found.values(), key=lambda c: (staff_rank(c.found_title), not c.email, c.last_name))
+    return ranked[:limit]
 
 
 def ipeds_chief(inst: dict, cands: List[Candidate], htmls: List[str]) -> List[Candidate]:
@@ -208,6 +220,9 @@ class Pipeline:
             return local[0] if local else base
 
         cands = filter_heads(cands, inst["website"])
+        if not cands:
+            # Nobody for any target profile: list the staff the website does name (most senior first).
+            cands = broad_staff([(r["url"], r["html"]) for r in rows], self.s.broad_max_people)
         cands.extend(ipeds_chief(inst, cands, [r["html"] for r in rows]))
         people = merge_candidates(cands, self.s.max_candidates_per_profile)
         form = None
@@ -288,6 +303,8 @@ class Pipeline:
         for pid, role in p["roles"].items():
             if role["quality"] == "close":
                 reasons.append(f"'{PROFILE_BY_ID[pid].target_title}' is only the closest match to the title found")
+            elif pid == "other":
+                reasons.append("no one matching a target profile at this institution; listed as other staff")
             elif role["quality"] == "fallback":
                 reasons.append(f"no '{PROFILE_BY_ID[pid].target_title}' found; this is the closest title at this institution")
             if role.get("competitors"):
