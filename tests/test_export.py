@@ -45,8 +45,8 @@ def test_linkedin_search_link(tmp_path):
 
 
 def test_first_columns_and_bold_name(tmp_path):
-    assert CONTACT_COLUMNS[:9] == ["last_name", "first_name", "email", "email_status", "linkedin_search",
-                                   "institution", "target_profiles", "found_title", "responsibilities"]
+    assert CONTACT_COLUMNS[:10] == ["last_name", "first_name", "email", "email_status", "linkedin_search",
+                                    "phone", "institution", "target_profiles", "found_title", "responsibilities"]
     assert len(CONTACT_COLUMNS) == len(set(CONTACT_COLUMNS))
     conn = connect(tmp_path / "t.db")
     conn.execute("INSERT INTO institutions (unitid, state, name, website, sector, system_name, is_system) "
