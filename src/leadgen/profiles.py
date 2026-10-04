@@ -1,4 +1,4 @@
-"""The 17 target profiles and the title-matching rules.
+"""The 18 target profiles (head of institution + the 17 requested) and the title-matching rules.
 
 Each profile has "exact" patterns (title clearly is that job) and "close" patterns (nearest
 equivalent when the exact job does not exist). Patterns run on a normalised, lower-cased title.
