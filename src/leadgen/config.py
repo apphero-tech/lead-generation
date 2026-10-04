@@ -17,7 +17,8 @@ class Settings:
     # IPEDS "HD" (directory) file year; HD2024 is the latest published as of 2026-10.
     ipeds_year: int = 2024
 
-    user_agent: str = "LeadgenResearchBot/0.1 (public staff directory research; respects robots.txt)"
+    # Keep it plain: some firewalls reject agents mentioning "robots.txt" (seen on Keiser, ATOM).
+    user_agent: str = "LeadgenResearchBot/0.1 (+https://github.com/apphero-tech/lead-generation)"
     request_timeout: float = 20.0
     # Minimum seconds between two requests to the same host (robots.txt Crawl-delay wins if larger).
     per_host_delay: float = 1.0

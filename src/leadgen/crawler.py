@@ -43,7 +43,10 @@ NEGATIVE = re.compile(
     re.I,
 )
 NEWS = re.compile(r"(/news/|/press|/stories/|/20\d\d/\d\d/|/blog/)", re.I)
-EXTERNAL_OK = re.compile(r"(foundation|alumni|giving|advancement|give)", re.I)
+EXTERNAL_OK = re.compile(r"(foundation|alumni|giving|advancement)", re.I)
+# Third-party platforms whose pages describe the platform's own staff, not the institution's.
+PLATFORM_HOST = re.compile(r"(zoom\.us|facebook|instagram|linkedin|twitter|x\.com|youtube|google|microsoft|"
+                           r"blackbaud|givecampus|eventbrite|salesforce|hubspot|wix|squarespace)", re.I)
 # Sub-sites of central offices: their staff/leadership pages get seeded as soon as the host is seen.
 CENTRAL_HOST = re.compile(
     r"^(www\.)?(registrar|admissions?|enroll\w*|uff|foundation|giving|give|advancement|alumni|it|its|"
@@ -89,6 +92,7 @@ class Crawler:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": settings.user_agent, "Accept": "text/html,*/*;q=0.5"})
         self.robots: Dict[str, Optional[robotparser.RobotFileParser]] = {}
+        self.last_block_reason = ""
         self.last_hit: Dict[str, float] = {}
 
     # --- politeness -----------------------------------------------------------------
@@ -100,7 +104,8 @@ class Crawler:
             self._wait(host)
             resp = self.session.get(f"{scheme}://{host}/robots.txt", timeout=self.s.request_timeout)
             if resp.status_code in (401, 403):
-                rp.disallow_all = True
+                rp.disallow_all = True  # conservative: treat a refused robots.txt as "keep out"
+                log.warning("%s refuses access to robots.txt (HTTP %s); site skipped", host, resp.status_code)
             elif resp.status_code >= 400:
                 rp.allow_all = True
             else:
@@ -242,7 +247,8 @@ class Crawler:
             for link, anchor in extract_links(row["html"], url):
                 host = urlparse(link).netloc.lower()
                 in_scope = registered_domain(host) == base or host in allowed_external
-                if not in_scope and EXTERNAL_OK.search(anchor + " " + host) and len(allowed_external) < 3:
+                if (not in_scope and EXTERNAL_OK.search(host) and not PLATFORM_HOST.search(host)
+                        and len(allowed_external) < 3):
                     # Foundations often live on their own domain (e.g. xyzfoundation.org).
                     allowed_external.add(host)
                     in_scope = True
@@ -257,6 +263,10 @@ class Crawler:
                     push(link, depth + 1, sc)
         self.conn.commit()
         log.info("%s: %d pages available (%d queued in total)", unitid, fetched, len(seen))
+        if fetched == 0:
+            rp = self.robots.get(urlparse(start).netloc)
+            self.last_block_reason = ("site refuses automated access (robots.txt)" if rp is None or rp.disallow_all
+                                      else "website unreachable")
         return fetched
 
     def sitemap_urls(self, root: str, refresh: bool, limit: int = 5000) -> list:

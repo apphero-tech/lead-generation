@@ -63,3 +63,7 @@ def test_it_and_crm_titles():
     assert not any(i == "dev_dir" for i, _ in got) and ("is_dir", "close") in got
     assert ("crm_dir", "close") in ids("CRM Salesforce Developer")
     assert not any(i == "dev_dir" for i, _ in ids("Senior Director of Development Communications"))
+
+
+def test_former_titles_rejected():
+    assert ids("Former Chief Information Officer of AstraZeneca") == set()

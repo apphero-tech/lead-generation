@@ -207,6 +207,7 @@ SENTENCE = re.compile(
 
 HEADING = re.compile(r"\b(leadership|team|staff|council|cabinet|directory|members|organization)\s*$")
 
+FORMER = re.compile(r"\b(former|retired|emerit\w*|past|late)\b")
 SUPPORT_STAFF = re.compile(r"\b(assistant to|executive assistant|administrative assistant|student assistant|student worker)\b")
 
 _COMPILED = [
@@ -236,7 +237,7 @@ def match_title(title: str) -> List[Tuple[Profile, str]]:
     t = normalize_title(title)
     if SENTENCE.search(t) or len(t.split()) > 18 or t.startswith("the ") and len(t.split()) > 3:
         return []
-    if HEADING.search(t) or SUPPORT_STAFF.search(t):
+    if HEADING.search(t) or SUPPORT_STAFF.search(t) or FORMER.search(t):
         return []  # "CIO Senior Leadership" is a section heading; assistants are not the boss
     # Leader titles name the job up front ("Support staff ... of the Registrar" does not).
     leader = (bool(TITLE_GATE.search(t)) and not NOT_A_LEADER.search(t)

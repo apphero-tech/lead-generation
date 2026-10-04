@@ -182,6 +182,10 @@ def export_state(conn, state: str, out_dir: Path, unitids: Optional[List[str]] =
         status = i["status"] or "not processed yet"
         if status == "skipped":
             status = "skipped - no website (manual check needed)"
+        crawl = conn.execute("SELECT detail FROM step_status WHERE unitid = ? AND step = 'crawl'",
+                             (i["unitid"],)).fetchone()
+        if crawl and (crawl["detail"] or "").startswith("0 pages:"):
+            status += " - " + crawl["detail"][9:]
         data.append([i["name"], i["website"], i["sector"], status, f"{len(found)}/{len(PROFILES)}"]
                     + [", ".join(found.get(p.id, [])) for p in PROFILES])
     _sheet(cov, header, data, {"institution": 34, "website": 28, "status": 22})

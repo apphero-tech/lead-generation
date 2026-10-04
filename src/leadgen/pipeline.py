@@ -102,6 +102,8 @@ HEAD_TITLE = re.compile(r"\b(president|chancellor)\b", re.I)
 def filter_heads(cands: List[Candidate], website: str) -> List[Candidate]:
     """Bare titles like "Director" identify the head only at small institutions. When many people
     match, keep only a President/Chancellor shown on the main site or the president's office site."""
+    # News stories name club / student-government "presidents": never a source for the head.
+    cands = [c for c in cands if c.profile_id != "head" or not NEWS.search(c.source_url)]
     heads = {name_key(c.first_name, c.last_name) for c in cands if c.profile_id == "head"}
     if len(heads) <= 3:
         return cands
@@ -166,7 +168,8 @@ class Pipeline:
             if self.progress:
                 self.progress.update(stage="Lecture du site web")
             n = self.crawler.crawl(unitid, inst["website"], refresh=refresh)
-            set_step(self.conn, unitid, "crawl", "done", f"{n} pages")
+            set_step(self.conn, unitid, "crawl", "done",
+                     f"{n} pages" if n else f"0 pages: {self.crawler.last_block_reason}")
         elif self.progress:
             # Already read on a previous run: count its cached pages so the counter stays meaningful.
             cached = self.conn.execute(

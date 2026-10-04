@@ -26,8 +26,25 @@ def test_city_variants_and_radius(tmp_path):
     from leadgen.db import connect
     from leadgen.ipeds import canonical_cities
     from leadgen.web import select_institutions
-    m = canonical_cities(["Fort Lauderdale"] * 6 + ["Ft Laurderdale", "St. Petersburg", "Saint Petersburg", "Saint Petersburg"])
+    fl = (26.12, -80.14)
+    m = canonical_cities([("Fort Lauderdale",) + fl + ("Keiser University-Ft Lauderdale",)] * 6 + [("Ft Laurderdale", 26.11, -80.15),
+                         ("St. Petersburg", 27.77, -82.64), ("Saint Petersburg", 27.77, -82.64)])
     assert m["Ft Laurderdale"] == "Fort Lauderdale" and m["St. Petersburg"] == "Saint Petersburg"
+    # Look-alike names of distinct, distant towns stay separate; suburbs stay separate.
+    m = canonical_cities([("Santa Clara", 37.35, -121.95), ("Santa Clarita", 34.39, -118.54),
+                          ("Charleston", 38.35, -81.63), ("Charles Town", 39.29, -77.86),
+                          ("Hartford", 41.76, -72.67), ("West Hartford", 41.76, -72.74),
+                          ("N Little Rock", 34.77, -92.27), ("North Little Rock", 34.78, -92.26),
+                          ("Washing", 38.55, -91.01, "Evolve Beauty Academy"),
+                          ("Washington", 38.55, -91.02, "Washington Career Center"),
+                          ("Aguada", 18.38, -67.19, "Colegio A"), ("Aguada", 18.38, -67.19, "Colegio B"),
+                          ("Aguadilla", 18.43, -67.15, "Inter American University-Aguadilla"),
+                          ("San Angelon", 31.44, -100.45, "Texas College of Cosmetology-San Angelo"),
+                          ("San Angelo", 31.44, -100.46, "Angelo State University")])
+    assert m["Santa Clarita"] == "Santa Clarita" and m["Charles Town"] == "Charles Town"
+    assert m["West Hartford"] == "West Hartford"
+    assert m["N Little Rock"] == m["North Little Rock"] and m["Washing"] == "Washington"
+    assert m["Aguada"] == "Aguada" and m["San Angelon"] == "San Angelo"
     conn = connect(tmp_path / "t.db")
     rows = [("1", "A", "Fort Lauderdale", "26.12", "-80.14"), ("2", "B", "Lauderhill", "26.16", "-80.21"),
             ("3", "C", "Miami", "25.77", "-80.19")]

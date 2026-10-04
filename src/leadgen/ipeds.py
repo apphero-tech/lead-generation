@@ -5,6 +5,7 @@ import csv
 import io
 import difflib
 import json
+import math
 import re
 import logging
 import zipfile
@@ -59,35 +60,118 @@ def normalize_website(raw: str) -> str:
     return raw
 
 
+DIRECTIONS = {"n": "north", "s": "south", "e": "east", "w": "west"}
+MERGE_MAX_KM = 15.0
+
+
+def city_tokens(name: str) -> List[str]:
+    x = re.sub(r"[^a-z ]", " ", strip_accents_basic(name or "").lower().replace(".", " "))
+    toks = x.split()
+    out = []
+    for i, t in enumerate(toks):
+        if t == "ft":
+            t = "fort"
+        elif t == "st":
+            t = "saint"
+        elif t == "mt":
+            t = "mount"
+        elif i == 0 and t in DIRECTIONS and len(toks) > 1:
+            t = DIRECTIONS[t]
+        out.append(t)
+    return out
+
+
 def city_key(name: str) -> str:
-    """Comparison key for a city: case/punctuation-free, common abbreviations expanded."""
-    x = re.sub(r"\s+", " ", (name or "").lower().replace(".", " ")).strip()
-    x = re.sub(r"\bft\b", "fort", x)
-    x = re.sub(r"\bst\b", "saint", x)
-    x = re.sub(r"\bmt\b", "mount", x)
-    return re.sub(r"[^a-z]", "", x)
+    """Comparison key for a city: case/punctuation/accent-free, common abbreviations expanded."""
+    return "".join(city_tokens(name))
 
 
-def canonical_cities(names: List[str]) -> Dict[str, str]:
-    """Map every raw IPEDS city spelling to one display name, merging variants and typos
-    ('Ft Laurderdale' -> 'Fort Lauderdale', 'St. Petersburg' -> 'Saint Petersburg')."""
+def strip_accents_basic(s: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+def _km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 6371 * 2 * math.asin(math.sqrt(h))
+
+
+def canonical_cities(entries) -> Dict[str, str]:
+    """Map every raw IPEDS city spelling to one display name.
+
+    entries: city names, or (city, lat, lon[, institution name]) tuples, for one state.
+    - Spellings differing only by case, punctuation, accents or abbreviations ("Ft", "St.", "N")
+      always merge.
+    - Look-alike spellings ("Ft Laurderdale", "Whitter", "Washing") merge only when their
+      institutions are within MERGE_MAX_KM AND the variant is evidently a typo: either the
+      institution's own name carries the other spelling ("ATI College-Whittier" filed under
+      "Whitter"), or the variant is used by a single institution and appears nowhere else.
+    Distinct places with similar names (Santa Clara / Santa Clarita, Aguada / Aguadilla) and
+    suburbs ("West Hartford") therefore stay separate.
+    """
     counts: Dict[str, int] = {}
-    for n in names:
-        n = re.sub(r"\s+", " ", n or "").strip()
-        if n:
-            counts[n] = counts.get(n, 0) + 1
-    # Most common spellings first, so they become the group's display name.
+    points: Dict[str, List[Tuple[float, float]]] = {}
+    owners: Dict[str, List[str]] = {}
+    corpus: List[str] = []
+    for e in entries:
+        name, lat, lon, inst = (e, None, None, "") if isinstance(e, str) else (tuple(e) + ("",))[:4]
+        n = re.sub(r"\s+", " ", name or "").strip()
+        if not n:
+            continue
+        counts[n] = counts.get(n, 0) + 1
+        owners.setdefault(n, []).append((inst or "").lower())
+        if inst:
+            corpus.append(inst.lower())
+        try:
+            points.setdefault(n, []).append((float(lat), float(lon)))
+        except (TypeError, ValueError):
+            points.setdefault(n, [])
+
+    def in_text(spelling: str, texts: List[str]) -> bool:
+        rx = re.compile(r"\b" + re.escape(spelling.lower()) + r"\b")
+        return any(rx.search(t) for t in texts)
+
+    def attested(spelling: str) -> bool:
+        return counts[spelling] >= 2 or in_text(spelling, corpus)
+
     ordered = sorted(counts, key=lambda n: (-counts[n], n))
-    groups: List[Tuple[str, str]] = []  # (key, display)
-    mapping: Dict[str, str] = {}
+    groups: List[dict] = []
     for n in ordered:
-        k = city_key(n)
-        target = next((d for gk, d in groups if gk == k or (
-            len(k) >= 6 and gk[:3] == k[:3] and difflib.SequenceMatcher(None, gk, k).ratio() >= 0.9)), None)
+        k, toks = city_key(n), set(city_tokens(n))
+        target = next((g for g in groups if g["key"] == k), None)
         if target is None:
-            target = n.title() if (n.isupper() or n.islower()) else n
-            groups.append((k, target))
-        mapping[n] = target
+            for g in groups:
+                if g["key"][:1] != k[:1] or toks < g["tokens"] or g["tokens"] < toks:
+                    continue  # "Hartford" vs "West Hartford": a different town
+                if difflib.SequenceMatcher(None, g["key"], k).ratio() < 0.8:
+                    continue
+                if not any(_km(a, b) <= MERGE_MAX_KM for a in points[n] for b in g["points"]):
+                    continue
+                # Either side may be the typo (spellings are visited by frequency, then alphabetically).
+                named_after = (any(in_text(sp, owners[n]) for sp in g["spellings"])
+                               or any(in_text(n, owners[sp]) for sp in g["spellings"]))
+                g_attested = any(attested(sp) for sp in g["spellings"])
+                lone_typo = (not attested(n) and g_attested) or (attested(n) and not g_attested)
+                if named_after or lone_typo:
+                    target = g
+                    break
+        if target is None:
+            target = {"key": k, "tokens": toks, "points": [], "spellings": []}
+            groups.append(target)
+        target["points"].extend(points[n])
+        target["spellings"].append(n)
+
+    mapping: Dict[str, str] = {}
+    for g in groups:
+        # Display: most used spelling; on a tie, one attested in institution names, full words
+        # over abbreviations, mixed case over ALL CAPS.
+        best = max(g["spellings"], key=lambda n: (
+            counts[n], in_text(n, corpus), not re.search(r"\b(ft|st|mt|n|s|e|w)\b\.?", n, re.I),
+            not (n.isupper() or n.islower())))
+        display = best.title() if (best.isupper() or best.islower()) else best
+        for n in g["spellings"]:
+            mapping[n] = display
     return mapping
 
 
@@ -107,11 +191,9 @@ def load_system_websites() -> Dict[str, str]:
 
 
 def read_state(csv_path: Path, state: str) -> List[dict]:
-    with open(csv_path, encoding="latin-1", newline="") as fh:
-        reader = csv.DictReader(fh)
-        # The first header carries a UTF-8 BOM read as latin-1; normalise it.
-        reader.fieldnames = [f.lstrip("﻿").replace("ï»¿", "") for f in reader.fieldnames]
-        rows = [r for r in reader if r["STABBR"].strip() == state]
+    # The IPEDS file is UTF-8 with a BOM (accents in Puerto Rico names, e.g. "Bayamón").
+    with open(csv_path, encoding="utf-8-sig", errors="replace", newline="") as fh:
+        rows = [r for r in csv.DictReader(fh) if r["STABBR"].strip() == state]
     institutions = []
     for r in rows:
         if r.get("CYACTIVE", "1").strip() not in ("1", ""):
@@ -133,7 +215,7 @@ def read_state(csv_path: Path, state: str) -> List[dict]:
             "system_name": "" if system in ("-1", "-2") else system,
             "is_system": 0,
         })
-    mapping = canonical_cities([i["city"] for i in institutions])
+    mapping = canonical_cities([(i["city"], i["latitude"], i["longitude"], i["name"]) for i in institutions])
     for i in institutions:
         i["city"] = mapping.get(re.sub(r"\s+", " ", i["city"]).strip(), i["city"])
     return institutions
