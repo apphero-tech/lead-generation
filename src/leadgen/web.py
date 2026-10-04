@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import threading
 import time
@@ -40,16 +41,41 @@ MINUTES_NEW_INSTITUTION = 4.0
 MINUTES_CACHED_INSTITUTION = 0.5
 
 
-def select_institutions(conn, state: str, city: str = "", unitid: str = "") -> List[dict]:
-    sql, args = "SELECT * FROM institutions WHERE state = ?", [state]
+def _coords(i: dict):
+    try:
+        return float(i["latitude"]), float(i["longitude"])
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def distance_km(a, b) -> float:
+    lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 6371 * 2 * math.asin(math.sqrt(h))
+
+
+def select_institutions(conn, state: str, city: str = "", unitid: str = "", radius_km: float = 0) -> List[dict]:
+    """Institutions of a state; optionally one city (+ every campus within radius_km of it) or one unitid."""
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM institutions WHERE state = ? ORDER BY is_system DESC, name", (state,)).fetchall()]
     if unitid:
-        sql += " AND unitid = ?"
-        args.append(unitid)
-    elif city:
-        sql += " AND lower(city) = ? AND is_system = 0"
-        args.append(city.lower())
-    sql += " ORDER BY is_system DESC, name"
-    return [dict(r) for r in conn.execute(sql, args).fetchall()]
+        return [r for r in rows if r["unitid"] == unitid]
+    if not city:
+        return rows
+    campuses = [r for r in rows if not r["is_system"]]
+    in_city = [r for r in campuses if (r["city"] or "").lower() == city.lower()]
+    if radius_km <= 0:
+        return in_city
+    pts = [c for c in (_coords(r) for r in in_city) if c]
+    if not pts:
+        return in_city
+    center = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+    near = []
+    for r in campuses:
+        c = _coords(r)
+        if r in in_city or (c and distance_km(center, c) <= radius_km):
+            near.append(r)
+    return near
 
 
 def slug(text: str) -> str:
@@ -68,7 +94,7 @@ class JobRunner:
                 return jid
         return None
 
-    def start(self, state: str, city: str, unitid: str, label: str) -> str:
+    def start(self, state: str, city: str, unitid: str, label: str, radius_km: float = 0) -> str:
         with self.lock:
             if self.running():
                 raise RuntimeError("A search is already running")
@@ -76,17 +102,19 @@ class JobRunner:
             prog = Progress()
             prog.update(label=label)
             self.jobs[jid] = prog
-        threading.Thread(target=self._run, args=(prog, state, city, unitid, label), daemon=True).start()
+        threading.Thread(target=self._run, args=(prog, state, city, unitid, label, radius_km), daemon=True).start()
         return jid
 
-    def _run(self, prog: Progress, state: str, city: str, unitid: str, label: str) -> None:
+    def _run(self, prog: Progress, state: str, city: str, unitid: str, label: str, radius_km: float) -> None:
         conn = connect(self.s.db_path)
         insts: List[dict] = []
         try:
             prog.update(status="running", stage="Chargement de la liste des établissements")
             load_institutions(conn, self.s, state)
-            insts = select_institutions(conn, state, city, unitid)
+            insts = select_institutions(conn, state, city, unitid, radius_km)
             prog.update(institutions_total=len(insts))
+            log.info("Job '%s': state=%s city=%r radius=%skm unitid=%r -> %d institution(s): %s",
+                     label, state, city, radius_km, unitid, len(insts), "; ".join(i["name"] for i in insts))
             pipe = Pipeline(conn, self.s, prog)
             for n, inst in enumerate(insts):
                 prog.check()
@@ -158,10 +186,13 @@ ul.files li:first-child{border-top:0}ul.files a{color:var(--accent);word-break:b
   <div class="row">
     <div><label for="state">État</label><select id="state"><option value="">Choisir un état…</option></select></div>
     <div><label for="city">Ville <span class="hint">(facultatif)</span></label><select id="city" disabled><option value="">Toutes les villes</option></select></div>
+    <div><label for="radius">Rayon <span class="hint">(villes voisines)</span></label><select id="radius" disabled>
+      <option value="0">Ville seule</option><option value="10">+ 10 km</option><option value="25">+ 25 km</option><option value="50">+ 50 km</option></select></div>
   </div>
   <label for="inst">Établissement <span class="hint">(facultatif, pour en traiter un seul)</span></label>
   <select id="inst" disabled><option value="">Tous les établissements de la sélection</option></select>
   <div class="estimate hidden" id="estimate"></div>
+  <details class="hidden" id="listBox" style="margin:-6px 0 16px"><summary style="cursor:pointer;color:var(--accent)">Voir la liste des établissements inclus</summary><ol id="instList" style="margin:8px 0 0;padding-left:22px;font-size:14px;max-height:260px;overflow:auto"></ol></details>
   <button class="primary" id="start" disabled>Lancer la recherche</button>
 </div>
 
@@ -190,17 +221,20 @@ async function init(){
   loadFiles();const run=await api('/api/jobs/current');if(run.id){job=run.id;showJob();poll()}
 }
 $('state').onchange=async()=>{
-  const s=$('state').value;['city','inst'].forEach(i=>{$(i).length=1;$(i).disabled=true});$('start').disabled=true;$('estimate').classList.add('hidden');
+  const s=$('state').value;['city','inst'].forEach(i=>{$(i).length=1;$(i).disabled=true});$('radius').disabled=true;$('radius').value='0';$('listBox').classList.add('hidden');$('start').disabled=true;$('estimate').classList.add('hidden');
   if(!s)return;$('estimate').textContent='Chargement de la liste officielle des établissements (IPEDS)…';$('estimate').classList.remove('hidden');
   places=await api('/api/places?state='+s);
   places.cities.forEach(c=>$('city').add(new Option(c.city+' ('+c.n+')',c.city)));$('city').disabled=false;fillInst();$('start').disabled=false;
 };
-$('city').onchange=fillInst;$('inst').onchange=estimate;
+$('city').onchange=()=>{$('radius').disabled=!$('city').value;if(!$('city').value)$('radius').value='0';fillInst()};
+$('radius').onchange=estimate;$('inst').onchange=estimate;
 function fillInst(){const c=$('city').value;$('inst').length=1;
   places.institutions.filter(i=>!c||i.city===c).forEach(i=>$('inst').add(new Option(i.name+(i.city?' — '+i.city:''),i.unitid)));
   $('inst').disabled=false;estimate()}
-function estimate(){const c=$('city').value,u=$('inst').value;
-  let sel=places.institutions.filter(i=>u?i.unitid===u:(!c||i.city===c));if(!u&&!c)sel=sel.concat(places.systems);
+async function estimate(){const c=$('city').value,u=$('inst').value,r=$('radius').value;
+  const sel=await api('/api/preview?state='+$('state').value+'&city='+encodeURIComponent(c)+'&unitid='+u+'&radius='+(u?0:r));
+  $('instList').innerHTML=sel.map(i=>'<li>'+i.name+(i.city?' — '+i.city:'')+(i.done?' <span class="hint">(déjà traité)</span>':'')+'</li>').join('');
+  $('listBox').classList.toggle('hidden',!sel.length);
   const done=sel.filter(i=>i.done).length,mins=Math.round((sel.length-done)*%NEW%+done*%CACHED%);
   $('estimate').innerHTML='<b>'+sel.length+'</b> établissement(s) dans la sélection'+(done?' (dont '+done+' déjà traités, plus rapides)':'')+
    '. Durée estimée : <b>'+(mins<60?Math.max(1,mins)+' min':Math.round(mins/6)/10+' h')+'</b>.'+(mins>120?' Vous pouvez laisser tourner : la recherche reprend où elle en était si elle est interrompue.':'');
@@ -209,7 +243,7 @@ $('start').onclick=async()=>{
   const st=$('state'),c=$('city').value,u=$('inst').value;
   const label=u?$('inst').selectedOptions[0].text.split(' — ')[0]:(c||st.selectedOptions[0].text.split(' (')[0]);
   try{const r=await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({state:st.value,city:c,unitid:u,label})});job=r.id;showJob();poll()}catch(e){alertBox(e.message)}
+    body:JSON.stringify({state:st.value,city:c,unitid:u,label:label+(!u&&c&&$('radius').value!=='0'?' +'+$('radius').value+'km':''),radius:u?0:$('radius').value})});job=r.id;showJob();poll()}catch(e){alertBox(e.message)}
 };
 $('cancel').onclick=()=>{$('cancel').disabled=true;fetch('/api/jobs/'+job+'/cancel',{method:'POST'})};
 function alertBox(m){$('estimate').innerHTML='<span class="err">'+m+'</span>';$('estimate').classList.remove('hidden')}
@@ -282,6 +316,19 @@ def create_app(settings: Settings) -> Flask:
             "systems": [item(i) for i in insts if i["is_system"]],
         })
 
+    @app.get("/api/preview")
+    def preview():
+        state = request.args.get("state", "").upper()
+        conn = connect(settings.db_path)
+        try:
+            done = {r["unitid"] for r in conn.execute(
+                "SELECT unitid FROM step_status WHERE step = 'crawl' AND status = 'done'")}
+            insts = select_institutions(conn, state, request.args.get("city", ""), request.args.get("unitid", ""),
+                                        float(request.args.get("radius") or 0))
+        finally:
+            conn.close()
+        return jsonify([{"name": i["name"], "city": i["city"] or "", "done": i["unitid"] in done} for i in insts])
+
     @app.post("/api/jobs")
     def start_job():
         body = request.get_json(force=True)
@@ -289,7 +336,8 @@ def create_app(settings: Settings) -> Flask:
         if state not in US_STATES:
             return jsonify(error="Choisissez un état"), 400
         try:
-            jid = runner.start(state, body.get("city", ""), body.get("unitid", ""), body.get("label") or state)
+            jid = runner.start(state, body.get("city", ""), body.get("unitid", ""), body.get("label") or state,
+                               float(body.get("radius") or 0))
         except RuntimeError:
             return jsonify(error="Une recherche est déjà en cours"), 409
         return jsonify(id=jid)

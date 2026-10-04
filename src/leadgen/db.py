@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS institutions (
     name          TEXT NOT NULL,
     website       TEXT,
     city          TEXT,
+    city_raw      TEXT,
+    latitude      TEXT,
+    longitude     TEXT,
     chief_name    TEXT,
     chief_title   TEXT,
     main_phone    TEXT,
@@ -114,7 +117,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     if "unit" not in cols:
         conn.execute("ALTER TABLE persons ADD COLUMN unit TEXT")
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(institutions)")}
-    for col in ("city", "chief_name", "chief_title", "main_phone"):
+    for col in ("city", "chief_name", "chief_title", "main_phone", "city_raw", "latitude", "longitude"):
         if col not in cols:
             conn.execute(f"ALTER TABLE institutions ADD COLUMN {col} TEXT")
     conn.commit()

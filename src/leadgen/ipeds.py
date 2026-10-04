@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import csv
 import io
+import difflib
 import json
 import re
 import logging
 import zipfile
 from importlib import resources
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import requests
 
@@ -58,6 +59,38 @@ def normalize_website(raw: str) -> str:
     return raw
 
 
+def city_key(name: str) -> str:
+    """Comparison key for a city: case/punctuation-free, common abbreviations expanded."""
+    x = re.sub(r"\s+", " ", (name or "").lower().replace(".", " ")).strip()
+    x = re.sub(r"\bft\b", "fort", x)
+    x = re.sub(r"\bst\b", "saint", x)
+    x = re.sub(r"\bmt\b", "mount", x)
+    return re.sub(r"[^a-z]", "", x)
+
+
+def canonical_cities(names: List[str]) -> Dict[str, str]:
+    """Map every raw IPEDS city spelling to one display name, merging variants and typos
+    ('Ft Laurderdale' -> 'Fort Lauderdale', 'St. Petersburg' -> 'Saint Petersburg')."""
+    counts: Dict[str, int] = {}
+    for n in names:
+        n = re.sub(r"\s+", " ", n or "").strip()
+        if n:
+            counts[n] = counts.get(n, 0) + 1
+    # Most common spellings first, so they become the group's display name.
+    ordered = sorted(counts, key=lambda n: (-counts[n], n))
+    groups: List[Tuple[str, str]] = []  # (key, display)
+    mapping: Dict[str, str] = {}
+    for n in ordered:
+        k = city_key(n)
+        target = next((d for gk, d in groups if gk == k or (
+            len(k) >= 6 and gk[:3] == k[:3] and difflib.SequenceMatcher(None, gk, k).ratio() >= 0.9)), None)
+        if target is None:
+            target = n.title() if (n.isupper() or n.islower()) else n
+            groups.append((k, target))
+        mapping[n] = target
+    return mapping
+
+
 def format_us_phone(raw: str) -> str:
     """IPEDS GENTELE: digits, sometimes with an extension appended (e.g. 85098357003632)."""
     digits = re.sub(r"\D", "", raw or "")
@@ -90,6 +123,9 @@ def read_state(csv_path: Path, state: str) -> List[dict]:
             "name": r["INSTNM"].strip(),
             "website": normalize_website(r["WEBADDR"]),
             "city": r.get("CITY", "").strip(),
+            "city_raw": r.get("CITY", "").strip(),
+            "latitude": r.get("LATITUDE", "").strip(),
+            "longitude": r.get("LONGITUD", "").strip(),
             "chief_name": r.get("CHFNM", "").strip(),
             "chief_title": r.get("CHFTITLE", "").strip(),
             "main_phone": format_us_phone(r.get("GENTELE", "")),
@@ -97,6 +133,9 @@ def read_state(csv_path: Path, state: str) -> List[dict]:
             "system_name": "" if system in ("-1", "-2") else system,
             "is_system": 0,
         })
+    mapping = canonical_cities([i["city"] for i in institutions])
+    for i in institutions:
+        i["city"] = mapping.get(re.sub(r"\s+", " ", i["city"]).strip(), i["city"])
     return institutions
 
 
@@ -110,7 +149,8 @@ def system_entities(institutions: List[dict], state: str) -> List[dict]:
             "state": state,
             "name": name,
             "website": websites.get(name, ""),
-            "city": "", "chief_name": "", "chief_title": "", "main_phone": "",
+            "city": "", "city_raw": "", "latitude": "", "longitude": "",
+            "chief_name": "", "chief_title": "", "main_phone": "",
             "sector": "System office",
             "system_name": name,
             "is_system": 1,
@@ -124,11 +164,13 @@ def load_institutions(conn, settings: Settings, state: str) -> int:
     systems = system_entities(campuses, state)
     for inst in campuses + systems:
         conn.execute(
-            "INSERT INTO institutions (unitid, state, name, website, city, chief_name, chief_title, main_phone, "
-            "sector, system_name, is_system) VALUES (:unitid, :state, :name, :website, :city, :chief_name, "
-            ":chief_title, :main_phone, :sector, :system_name, :is_system) "
+            "INSERT INTO institutions (unitid, state, name, website, city, city_raw, latitude, longitude, "
+            "chief_name, chief_title, main_phone, sector, system_name, is_system) VALUES (:unitid, :state, "
+            ":name, :website, :city, :city_raw, :latitude, :longitude, :chief_name, :chief_title, :main_phone, "
+            ":sector, :system_name, :is_system) "
             "ON CONFLICT (unitid) DO UPDATE SET name = excluded.name, website = excluded.website, "
-            "city = excluded.city, chief_name = excluded.chief_name, chief_title = excluded.chief_title, "
+            "city = excluded.city, city_raw = excluded.city_raw, latitude = excluded.latitude, "
+            "longitude = excluded.longitude, chief_name = excluded.chief_name, chief_title = excluded.chief_title, "
             "main_phone = excluded.main_phone, "
             "sector = excluded.sector, system_name = excluded.system_name",
             inst,
