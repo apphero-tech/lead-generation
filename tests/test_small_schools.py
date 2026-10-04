@@ -67,3 +67,16 @@ def test_ipeds_non_head_title_not_labelled_head():
     assert [c.profile_id for c in ipeds_chief(inst, [], [""])] == ["other"]
     inst = {"unitid": "9", "chief_name": "Arthur Keiser", "chief_title": "Chancellor"}
     assert [c.profile_id for c in ipeds_chief(inst, [], [""])] == ["head"]
+
+
+def test_network_campus_level():
+    from leadgen.pipeline import campus_terms, contact_level
+    inst = {"name": "Arizona College of Nursing-Fort Lauderdale", "city": "Fort Lauderdale",
+            "site_shared_by": "20", "chief_shared_by": "20"}
+    assert "Fort Lauderdale" in campus_terms(inst)
+    ipeds = "https://nces.ed.gov/collegenavigator/?id=1"
+    assert contact_level(inst, [ipeds], {}).startswith("network-wide (20")  # same CEO for 20 campuses
+    assert contact_level(inst, ["https://x.edu/leadership"], {}).startswith("network-wide")
+    assert contact_level(inst, ["https://x.edu/campuses/fort-lauderdale/"], {}) == "this campus"
+    assert contact_level({**inst, "site_shared_by": "1"}, ["https://x.edu/leadership"], {}) == "this campus"
+    assert contact_level({**inst, "chief_shared_by": "1"}, [ipeds], {}) == "this campus"

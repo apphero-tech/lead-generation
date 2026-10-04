@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS institutions (
     chief_name    TEXT,
     chief_title   TEXT,
     main_phone    TEXT,
+    site_shared_by  TEXT,
+    chief_shared_by TEXT,
     sector        TEXT,
     system_name   TEXT,
     is_system     INTEGER NOT NULL DEFAULT 0
@@ -46,6 +48,7 @@ CREATE TABLE IF NOT EXISTS persons (
     unitid             TEXT NOT NULL,
     person_key         TEXT NOT NULL,
     unit               TEXT,
+    level              TEXT,
     first_name         TEXT,
     last_name          TEXT,
     email              TEXT,
@@ -114,10 +117,12 @@ def connect(path: Path) -> sqlite3.Connection:
 def migrate(conn: sqlite3.Connection) -> None:
     """Add columns introduced after a database was first created."""
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(persons)")}
-    if "unit" not in cols:
-        conn.execute("ALTER TABLE persons ADD COLUMN unit TEXT")
+    for col in ("unit", "level"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE persons ADD COLUMN {col} TEXT")
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(institutions)")}
-    for col in ("city", "chief_name", "chief_title", "main_phone", "city_raw", "latitude", "longitude"):
+    for col in ("city", "chief_name", "chief_title", "main_phone", "city_raw", "latitude", "longitude",
+                "site_shared_by", "chief_shared_by"):
         if col not in cols:
             conn.execute(f"ALTER TABLE institutions ADD COLUMN {col} TEXT")
     conn.commit()

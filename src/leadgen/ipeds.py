@@ -232,7 +232,7 @@ def system_entities(institutions: List[dict], state: str) -> List[dict]:
             "name": name,
             "website": websites.get(name, ""),
             "city": "", "city_raw": "", "latitude": "", "longitude": "",
-            "chief_name": "", "chief_title": "", "main_phone": "",
+            "chief_name": "", "chief_title": "", "main_phone": "", "site_shared_by": "1", "chief_shared_by": "1",
             "sector": "System office",
             "system_name": name,
             "is_system": 1,
@@ -240,20 +240,51 @@ def system_entities(institutions: List[dict], state: str) -> List[dict]:
     return out
 
 
+def site_domain(website: str) -> str:
+    """The exact site IPEDS points to (host without www + path): campuses with their own sub-site
+    (abington.psu.edu) or own page (fortis.edu/campuses/x) are NOT counted as sharing a website."""
+    url = re.sub(r"^https?://", "", (website or "").strip().lower()).split("?")[0].rstrip("/")
+    return url[4:] if url.startswith("www.") else url
+
+
+def network_counts(csv_path: Path) -> Tuple[Dict[str, int], Dict[Tuple[str, str], int]]:
+    """Nationwide: how many active campuses share each website domain, and each (domain, chief)."""
+    sites: Dict[str, int] = {}
+    chiefs: Dict[Tuple[str, str], int] = {}
+    with open(csv_path, encoding="utf-8-sig", errors="replace", newline="") as fh:
+        for r in csv.DictReader(fh):
+            if r.get("CYACTIVE", "1").strip() not in ("1", ""):
+                continue
+            d = site_domain(normalize_website(r["WEBADDR"]))
+            if not d:
+                continue
+            sites[d] = sites.get(d, 0) + 1
+            key = (d, r.get("CHFNM", "").strip().lower())
+            chiefs[key] = chiefs.get(key, 0) + 1
+    return sites, chiefs
+
+
 def load_institutions(conn, settings: Settings, state: str) -> int:
     csv_path = download_hd(settings)
     campuses = read_state(csv_path, state)
+    sites, chiefs = network_counts(csv_path)
+    for c in campuses:
+        d = site_domain(c["website"])
+        c["site_shared_by"] = str(sites.get(d, 1)) if d else "1"
+        c["chief_shared_by"] = str(chiefs.get((d, c["chief_name"].lower()), 1)) if d else "1"
     systems = system_entities(campuses, state)
     for inst in campuses + systems:
         conn.execute(
             "INSERT INTO institutions (unitid, state, name, website, city, city_raw, latitude, longitude, "
-            "chief_name, chief_title, main_phone, sector, system_name, is_system) VALUES (:unitid, :state, "
-            ":name, :website, :city, :city_raw, :latitude, :longitude, :chief_name, :chief_title, :main_phone, "
-            ":sector, :system_name, :is_system) "
+            "chief_name, chief_title, main_phone, site_shared_by, chief_shared_by, sector, system_name, "
+            "is_system) VALUES (:unitid, :state, :name, :website, :city, :city_raw, :latitude, :longitude, "
+            ":chief_name, :chief_title, :main_phone, :site_shared_by, :chief_shared_by, :sector, :system_name, "
+            ":is_system) "
             "ON CONFLICT (unitid) DO UPDATE SET name = excluded.name, website = excluded.website, "
             "city = excluded.city, city_raw = excluded.city_raw, latitude = excluded.latitude, "
             "longitude = excluded.longitude, chief_name = excluded.chief_name, chief_title = excluded.chief_title, "
-            "main_phone = excluded.main_phone, "
+            "main_phone = excluded.main_phone, site_shared_by = excluded.site_shared_by, "
+            "chief_shared_by = excluded.chief_shared_by, "
             "sector = excluded.sector, system_name = excluded.system_name",
             inst,
         )

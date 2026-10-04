@@ -14,7 +14,7 @@ from openpyxl.utils import get_column_letter
 from .profiles import PROFILE_BY_ID, PROFILES
 
 CONTACT_COLUMNS = [
-    "state", "institution", "institution_website", "system", "sector", "unit", "first_name", "last_name",
+    "state", "institution", "institution_website", "system", "sector", "unit", "contact_level", "first_name", "last_name",
     "target_profiles", "found_title", "role_family", "responsibilities", "email", "email_status",
     "email_source", "phone", "phone_status", "source_urls", "last_verified_date",
     "manual_check_needed", "check_reasons", "linkedin_search",
@@ -41,6 +41,7 @@ README = [
     ("last_verified_date", "Date the tool last read the source page online."),
     ("responsibilities", "'(from source page)' = sentence taken from the page; '(typical scope for this title)' = generic description of the job."),
     ("linkedin_search", "Click to open a LinkedIn people search for this person (name + institution) in your browser, to check their current role by hand. The tool itself never visits LinkedIn."),
+    ("contact_level", "'this campus' = found on this institution's own pages (or IPEDS names this campus's own chief). 'network-wide' = the institution is one campus of a chain sharing one website (e.g. 20 'Arizona College of Nursing' campuses); the person was found on the shared site, so is probably at headquarters or another campus."),
     ("Coverage sheet", "One row per institution: who was found for each of the 18 profiles. Empty = nobody found (never invented)."),
     ("phone_status = main switchboard (IPEDS)", "The institution's general phone number from the federal IPEDS directory, not a direct line."),
     ("closest title", "check_reasons 'this is the closest title at this institution' = nobody holds the target job; this is the nearest role (common at small schools)."),
@@ -83,6 +84,7 @@ def collect_rows(conn, state: str, unitids: Optional[List[str]] = None) -> List[
             "system": p["system_name"],
             "sector": p["sector"],
             "unit": p["unit"],
+            "contact_level": p["level"] or "this campus",
             "first_name": p["first_name"],
             "last_name": p["last_name"],
             "target_profiles": "; ".join(PROFILE_BY_ID[x].target_title for x in pids),
@@ -181,7 +183,7 @@ def export_state(conn, state: str, out_dir: Path, unitids: Optional[List[str]] =
     ws.title = "Contacts"
     widths = {"institution": 30, "responsibilities": 50, "source_urls": 50, "check_reasons": 50,
               "found_title": 40, "target_profiles": 35, "email": 30, "email_source": 40,
-              "institution_website": 28, "sector": 22, "system": 25, "unit": 35, "linkedin_search": 22}
+              "institution_website": 28, "sector": 22, "system": 25, "unit": 35, "linkedin_search": 22, "contact_level": 24}
     _sheet(ws, CONTACT_COLUMNS, [[r[c] for c in CONTACT_COLUMNS] for r in rows], widths)
 
     cov = wb.create_sheet("Coverage")

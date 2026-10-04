@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from .config import Settings
-from .crawler import NEWS, Crawler, registered_domain
+from .crawler import NEWS, Crawler, campus_slugs, mentions_campus, registered_domain
 from .db import get_step, set_step
 from .directory import Directory, DirectoryForm
 from .email_pattern import deduce, detect_pattern, name_in_email
@@ -127,6 +127,27 @@ def broad_staff(pages, limit: int) -> List[Candidate]:
     return ranked[:limit]
 
 
+def shared_site(inst: dict) -> int:
+    """Number of campuses (nationwide) whose IPEDS website is this exact site; 0 if not shared."""
+    try:
+        n = int(inst.get("site_shared_by") or 1)
+    except ValueError:
+        n = 1
+    return n if n > 1 else 0
+
+
+def campus_terms(inst: dict) -> List[str]:
+    """Words identifying this campus on a network website: the name suffix and the city."""
+    terms = []
+    parts = re.split(r"\s+[-–]\s+|-(?=[A-Z])", inst.get("name") or "")
+    if len(parts) > 1:
+        terms.append(parts[-1])
+    for c in (inst.get("city"), inst.get("city_raw")):
+        if c:
+            terms.append(c)
+    return list(dict.fromkeys(terms))
+
+
 def ipeds_chief(inst: dict, cands: List[Candidate], htmls: List[str]) -> List[Candidate]:
     """The institution's chief executive from IPEDS, so every institution has at least its head.
 
@@ -145,6 +166,24 @@ def ipeds_chief(inst: dict, cands: List[Candidate], htmls: List[str]) -> List[Ca
                                      else [(PROFILE_BY_ID["other"], "fallback")])
     src = IPEDS_SOURCE.format(unitid=inst["unitid"])
     return [Candidate(first, last, p.id, q, title, src) for p, q in matches]
+
+
+def contact_level(inst: dict, sources: List[str], titles: Dict[str, str]) -> str:
+    """'this campus' or 'network-wide' (contact found only on a website shared by many campuses)."""
+    n = shared_site(inst)
+    if not n:
+        return "this campus"
+    slugs = campus_slugs(campus_terms(inst))
+    if any(u.startswith("https://nces.ed.gov/") for u in sources):
+        try:
+            chief_n = int(inst.get("chief_shared_by") or 1)
+        except ValueError:
+            chief_n = 1
+        if chief_n <= 1:
+            return "this campus"  # IPEDS names a chief specific to this campus
+    if any(mentions_campus(u + " " + titles.get(u, ""), slugs) for u in sources):
+        return "this campus"
+    return f"network-wide ({n} campuses share this website)"
 
 
 def pick_title(titles: List[str]) -> str:
@@ -171,7 +210,8 @@ class Pipeline:
             set_step(self.conn, unitid, "crawl", "running")
             if self.progress:
                 self.progress.update(stage="Lecture du site web")
-            n = self.crawler.crawl(unitid, inst["website"], refresh=refresh)
+            n = self.crawler.crawl(unitid, inst["website"], refresh=refresh,
+                                   campus_terms=campus_terms(inst) if shared_site(inst) else None)
             set_step(self.conn, unitid, "crawl", "done",
                      f"{n} pages" if n else f"0 pages: {self.crawler.last_block_reason}")
         elif self.progress:
@@ -195,6 +235,7 @@ class Pipeline:
         page_info = {r["url"]: (r["source_date"], r["fetched_at"]) for r in rows}
         self._titles = {r["url"]: _page_title(r["html"]) for r in rows}
         self._main_phone = {unitid: inst.get("main_phone") or ""}
+        self._inst = inst
         cands: List[Candidate] = []
         pairs_by_domain: Dict[str, list] = defaultdict(list)
         domains_by_host: Dict[str, Counter] = defaultdict(Counter)
@@ -339,12 +380,17 @@ class Pipeline:
 
         first_src = all_sources[0] if all_sources else ""
         unit = unit_from_title(self._titles.get(first_src, ""), urlparse(first_src).netloc)
+        level = contact_level(self._inst, all_sources, self._titles)
+        if level.startswith("network"):
+            unit = "Network headquarters / all campuses"
+            reasons.append("found on the network's shared website, not on this campus's page: probably based "
+                           "at headquarters or another campus")
 
         cur = self.conn.execute(
-            "INSERT INTO persons (unitid, person_key, unit, first_name, last_name, email, email_status, email_source, "
+            "INSERT INTO persons (unitid, person_key, unit, level, first_name, last_name, email, email_status, email_source, "
             "phone, phone_status, phone_source, responsibilities, last_verified_date, manual_check, check_reasons) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (unitid, p["person_key"], unit, p["first_name"], p["last_name"], email, email_status, email_source,
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (unitid, p["person_key"], unit, level, p["first_name"], p["last_name"], email, email_status, email_source,
              phone, phone_status, phone_source, resp, max(verified) if verified else None,
              1 if reasons else 0, "; ".join(dict.fromkeys(reasons))),
         )

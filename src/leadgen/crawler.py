@@ -74,11 +74,28 @@ def registered_domain(host: str) -> str:
 NON_PROD_HOST = re.compile(r"^(archive|test|dev|staging|stage|qa|old|legacy)[.\-]", re.I)
 
 
-def score_link(url: str, anchor: str) -> int:
+def campus_slugs(terms) -> list:
+    """'Fort Lauderdale' -> ['fort lauderdale', 'fort-lauderdale', 'fortlauderdale', 'fort_lauderdale']."""
+    out = []
+    for t in terms or []:
+        t = re.sub(r"[^a-z ]", " ", t.lower()).split()
+        if t:
+            out += [" ".join(t), "-".join(t), "".join(t), "_".join(t)]
+    return list(dict.fromkeys(x for x in out if len(x) >= 4))
+
+
+def mentions_campus(text: str, slugs) -> bool:
+    text = text.lower()
+    return any(s in text for s in slugs)
+
+
+def score_link(url: str, anchor: str, slugs=()) -> int:
     text = (url + " " + anchor).lower()
     if NEGATIVE.search(url) or NON_PROD_HOST.search(urlparse(url).netloc):
         return -1
     score = sum(w for k, w in POSITIVE.items() if k in text)
+    if slugs and mentions_campus(text, slugs):
+        score += 20  # shared network website: this campus's own pages first
     if NEWS.search(url):
         score = min(score, 2)  # news can name leaders, but is a weaker and older source
     return score
@@ -194,11 +211,12 @@ class Crawler:
         return resp.text[: self.s.max_page_bytes]
 
     # --- crawl ----------------------------------------------------------------------
-    def crawl(self, unitid: str, website: str, refresh: bool = False) -> int:
+    def crawl(self, unitid: str, website: str, refresh: bool = False, campus_terms=None) -> int:
         start = normalize_url(website)
         if not start:
             return 0
         base = registered_domain(urlparse(start).netloc)
+        slugs = campus_slugs(campus_terms)
         allowed_external: Set[str] = set()
         heap: list = []
         seen: Set[str] = set()
@@ -217,7 +235,7 @@ class Crawler:
         for path in COMMON_PATHS:
             push(root + path, 1, 8)
         for url in self.sitemap_urls(root, refresh):
-            sc = score_link(url, "")
+            sc = score_link(url, "", slugs)
             if sc >= 4:
                 push(url, 1, sc)
 
@@ -258,7 +276,7 @@ class Crawler:
                     seeded_hosts.add(host)
                     for path in HOST_SEED_PATHS:
                         push(f"{urlparse(link).scheme}://{host}{path}", depth + 1, 12)
-                sc = score_link(link, anchor)
+                sc = score_link(link, anchor, slugs)
                 if sc > 0 or depth < 1:
                     push(link, depth + 1, sc)
         self.conn.commit()
