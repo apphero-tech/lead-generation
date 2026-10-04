@@ -45,8 +45,9 @@ def test_linkedin_search_link(tmp_path):
 
 
 def test_first_columns_and_bold_name(tmp_path):
-    assert CONTACT_COLUMNS[:3] == ["name", "email", "linkedin_search"]
-    assert CONTACT_COLUMNS.count("email") == 1 and "first_name" in CONTACT_COLUMNS
+    assert CONTACT_COLUMNS[:9] == ["last_name", "first_name", "email", "email_status", "linkedin_search",
+                                   "institution", "target_profiles", "found_title", "responsibilities"]
+    assert len(CONTACT_COLUMNS) == len(set(CONTACT_COLUMNS))
     conn = connect(tmp_path / "t.db")
     conn.execute("INSERT INTO institutions (unitid, state, name, website, sector, system_name, is_system) "
                  "VALUES ('1','FL','Test U','https://t.edu','Public','',0)")
@@ -55,5 +56,5 @@ def test_first_columns_and_bold_name(tmp_path):
     conn.execute("INSERT INTO person_roles VALUES (1,'cio','CIO','exact','https://t.edu/a',NULL)")
     conn.commit()
     ws = load_workbook(export_state(conn, "FL", tmp_path))["Contacts"]
-    assert [ws.cell(2, i).value for i in (1, 2)] == ["Doe, Jane", "jd@t.edu"]
-    assert ws.cell(2, 1).font.bold and ws.cell(2, 1).font.size == 13
+    assert [ws.cell(2, i).value for i in (1, 2, 3, 4)] == ["Doe", "Jane", "jd@t.edu", "published"]
+    assert ws.cell(2, 1).font.bold and ws.cell(2, 2).font.size == 13 and not ws.cell(2, 3).font.bold

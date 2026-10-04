@@ -13,14 +13,15 @@ from openpyxl.utils import get_column_letter
 
 from .profiles import PROFILE_BY_ID, PROFILES
 
-# First the three columns used most: full name, email, LinkedIn link; then the details.
+# The columns used most come first; details follow.
 CONTACT_COLUMNS = [
-    "name", "email", "linkedin_search",
-    "state", "institution", "institution_website", "system", "sector", "unit", "contact_level", "first_name", "last_name",
-    "target_profiles", "found_title", "role_family", "responsibilities", "email_status",
+    "last_name", "first_name", "email", "email_status", "linkedin_search", "institution",
+    "target_profiles", "found_title", "responsibilities",
+    "state", "institution_website", "system", "sector", "unit", "contact_level", "role_family",
     "email_source", "phone", "phone_status", "source_urls", "last_verified_date",
     "manual_check_needed", "check_reasons",
 ]
+NAME_COLUMNS = ("last_name", "first_name")
 NAME_FONT = Font(bold=True, size=13)
 LINK_COLUMNS = {"linkedin_search"}
 
@@ -32,10 +33,9 @@ def linkedin_search_url(first: str, last: str, institution: str) -> str:
     return "https://www.linkedin.com/search/results/people/?" + urlencode({"keywords": f"{first} {last} {core}".strip()})
 
 README = [
-    ("name", "Last name, First name (columns first_name / last_name further right hold them separately)."),
     ("What this file is", "Contacts found on public university web pages for the target profiles. Free sources only."),
-    ("email_status = published", "The address was written on an official web page next to the person's name (see email_source)."),
-    ("email_status = deduced", "Not published. Built from the institution's email format (e.g. first.last@), learned from other published addresses. Must be checked by hand."),
+    ("email_status = published", "CERTAIN. The address was written on an official web page next to the person's name (see email_source)."),
+    ("email_status = deduced", "GUESSED. Not published. Built from the institution's email format (e.g. first.last@), learned from other published addresses. Must be checked by hand."),
     ("email_status = not found", "No published address and no reliable email format for that institution."),
     ("phone_status = published", "Phone number printed next to the person on the source page (may be an office line)."),
     ("unit", "Faculty, school or office the person belongs to (from the source page title)."),
@@ -82,7 +82,6 @@ def collect_rows(conn, state: str, unitids: Optional[List[str]] = None) -> List[
         if p["email_source"] and p["email_source"].startswith("http") and p["email_source"] not in sources:
             sources.append(p["email_source"])
         rows.append({
-            "name": f"{p['last_name']}, {p['first_name']}",
             "state": state,
             "institution": p["inst_name"],
             "institution_website": p["website"],
@@ -186,13 +185,14 @@ def export_state(conn, state: str, out_dir: Path, unitids: Optional[List[str]] =
     wb = Workbook()
     ws = wb.active
     ws.title = "Contacts"
-    widths = {"name": 28, "institution": 30, "responsibilities": 50, "source_urls": 50, "check_reasons": 50,
+    widths = {"last_name": 18, "first_name": 16, "email": 32, "email_status": 14, "institution": 30, "responsibilities": 50, "source_urls": 50, "check_reasons": 50,
               "found_title": 40, "target_profiles": 35, "email": 30, "email_source": 40,
               "institution_website": 28, "sector": 22, "system": 25, "unit": 35, "linkedin_search": 22, "contact_level": 24}
     _sheet(ws, CONTACT_COLUMNS, [[r[c] for c in CONTACT_COLUMNS] for r in rows], widths)
-    for (cell,) in ws.iter_rows(min_row=2, min_col=1, max_col=1):
-        cell.font = NAME_FONT
-    ws.freeze_panes = "B2"  # header row and name column stay visible while scrolling
+    for row in ws.iter_rows(min_row=2, min_col=1, max_col=len(NAME_COLUMNS)):
+        for cell in row:
+            cell.font = NAME_FONT
+    ws.freeze_panes = "C2"  # header row and name columns stay visible while scrolling
 
     cov = wb.create_sheet("Coverage")
     insts = conn.execute(
