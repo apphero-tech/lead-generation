@@ -1,7 +1,7 @@
 # leadgen — US university contact lists (free sources only)
 
-Builds one Excel file per state listing people who match 17 target profiles (enrollment,
-advancement/foundation, IT/CRM, continuing education/workforce) at every institution in IPEDS,
+Builds one Excel file per state listing people who match 18 target profiles (head of institution,
+enrollment, advancement/foundation, IT/CRM, continuing education/workforce) at every institution in IPEDS,
 plus system offices. No paid API is used.
 
 ## Démarrage rapide (FR)
@@ -62,9 +62,11 @@ Staging database: `data/leadgen.db` (SQLite). Logs: `logs/`.
 2. **Crawl**: each institution's own website, most promising pages first (cabinet, leadership,
    directory, advancement, foundation, IT, continuing education...). robots.txt honoured,
    1 request/second per host, every page cached (re-runs never re-download unless `--refresh`).
-3. **Extract**: rule-based matching of titles to the 17 profiles (`src/leadgen/profiles.py`) and
+3. **Extract**: rule-based matching of titles to the 18 profiles (`src/leadgen/profiles.py`) and
    pairing with a person's name. Emails are attached only if they match the person's name.
-   Everyone matching a profile is kept (e.g. one Director of Development per college), with their
+   Small institutions: when nobody holds a target title, the closest junior title is kept
+   (e.g. "Admissions Representative"), and the head of the institution comes from IPEDS if the
+   website names no one. Everyone matching a profile is kept (e.g. one Director of Development per college), with their
    `unit` (college/office).
 4. **Official directory search** (generic): the institution's people-search form is found
    automatically (directory.<domain>, or any crawled directory page), probed with people already

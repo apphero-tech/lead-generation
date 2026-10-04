@@ -28,9 +28,21 @@ class Profile:
     close: Tuple[str, ...] = ()
     exclude: Tuple[str, ...] = ()
     duties: str = ""
+    # Junior titles used only when the institution has nobody closer (typical of small schools).
+    fallback: Tuple[str, ...] = ()
 
 
 PROFILES: List[Profile] = [
+    # LEADERSHIP (head of the institution: always useful, and often the only name at small schools)
+    Profile(
+        "head", "Leadership", "Head of Institution (President / Director)",
+        exact=(r"^(president|chancellor|campus president|president and (ceo|chief executive officer)|"
+               r"ceo|chief executive officer|executive director|campus director|school director|director|"
+               r"superintendent|head of school|college president|university president)$",
+               r"^(president|chancellor)(,| of) (the )?[a-z .'-]{0,60}(university|college|institute|school)$"),
+        exclude=(r"\b(vice|associate|assistant|deputy|student|alumni|foundation|board|senate|association)\b",),
+        duties="Chief executive of the institution: sets strategy and signs off on major investments and partnerships.",
+    ),
     # ENROLLMENT / ADMISSIONS
     Profile(
         "enr_vp", "Enrollment / Admissions", "VP Enrollment Management",
@@ -56,13 +68,16 @@ PROFILES: List[Profile] = [
         exact=(r"\bdirector\b[^.]{0,30}\badmissions?\b", r"\bdean of admissions?\b"),
         close=(r"\bdirector\b[^.]{0,30}\b(recruitment|recruiting)\b",),
         exclude=(r"\b(associate|assistant) director\b",),
+        fallback=(r"\b(admissions?|enrollment|recruitment) (representative|coordinator|advisor|counselor|specialist|manager|officer)\b",),
         duties="Runs the admissions office: recruitment, application review and admission decisions.",
     ),
     Profile(
         "registrar", "Enrollment / Admissions", "Registrar",
         exact=(r"(?<!associate )(?<!assistant )(?<!deputy )\b(university |college )?registrar\b",),
         close=(r"\b(associate|deputy) registrar\b",),
-        exclude=(r"\bassistant registrar\b", r"\boffice of the registrar\b$"),
+        exclude=(r"\boffice of the registrar\b$",),
+        fallback=(r"\bassistant registrar\b",
+                  r"\b(student|academic) records (coordinator|specialist|manager|officer)\b"),
         duties="Oversees student records, registration, academic calendar, transcripts and degree certification.",
     ),
     # ADVANCEMENT / FOUNDATION
@@ -104,6 +119,7 @@ PROFILES: List[Profile] = [
         exact=(r"\bdirector\b[^.]{0,30}\b(development|major gifts)\b",),
         exclude=(r"\b(associate|assistant) director\b",
                  OTHER_DEVELOPMENT, r"\bapplications?\b", r"\bdevelopment communications\b"),
+        fallback=(r"\b(development|advancement|fundraising|annual giving|major gifts?) (officer|coordinator|manager|associate|specialist)\b",),
         duties="Raises funds from individual and institutional donors, typically for a college, unit or campaign.",
     ),
     Profile(
@@ -111,6 +127,7 @@ PROFILES: List[Profile] = [
         exact=(r"\bdirector\b[^.]{0,30}\balumni\b",),
         close=(r"\b(president|ceo)\b[^.]{0,30}\balumni association\b",),
         exclude=(r"\b(associate|assistant) director\b",),
+        fallback=(r"\balumni (relations |engagement )?(coordinator|manager|officer|specialist)\b",),
         duties="Leads alumni engagement: events, alumni association, communications and volunteer programs.",
     ),
     # IT / CRM
@@ -122,6 +139,8 @@ PROFILES: List[Profile] = [
         close=(r"\bchief (technology|digital) officer\b",
                r"\b(executive )?director\b[^.]{0,20}\binformation technology\b"),
         exclude=(r"\b(associate|assistant) director\b",),
+        fallback=(r"\b(information technology|technology|technical services) (manager|coordinator|administrator|specialist|lead)\b",
+                  r"\b(network|systems?) (administrator|manager)\b"),
         duties="Leads the institution's information technology strategy, infrastructure and enterprise systems.",
     ),
     Profile(
@@ -149,12 +168,14 @@ PROFILES: List[Profile] = [
                r"executive education|professional education|extended (learning|studies|education)|"
                r"professional (and|&) continuing|lifelong learning|professional studies)\b",),
         exclude=(r"\b(associate|assistant) director\b",),
+        fallback=(r"\b(continuing|community|adult|professional) education (coordinator|manager|specialist|advisor)\b",),
         duties="Leads non-degree and professional programs: continuing education, executive and extended learning.",
     ),
     Profile(
         "wf_dir", "Continuing Education / Workforce", "Director of Workforce Development",
         exact=(r"\b(director|dean|vice president|vice provost|executive director|provost)\b[^.]{0,50}\bworkforce\b",),
         exclude=(r"\b(associate|assistant) director\b",),
+        fallback=(r"\b(internship|apprenticeship|career services|workforce|career|employer relations) (coordinator|manager|specialist|advisor)\b",),
         duties="Leads workforce training programs, employer partnerships and career/technical education.",
     ),
 ]
@@ -179,8 +200,11 @@ SENTENCE = re.compile(
 
 HEADING = re.compile(r"\b(leadership|team|staff|council|cabinet|directory|members|organization)\s*$")
 
+SUPPORT_STAFF = re.compile(r"\b(assistant to|executive assistant|administrative assistant|student assistant|student worker)\b")
+
 _COMPILED = [
-    (p, [re.compile(x) for x in p.exact], [re.compile(x) for x in p.close], [re.compile(x) for x in p.exclude])
+    (p, [re.compile(x) for x in p.exact], [re.compile(x) for x in p.close], [re.compile(x) for x in p.exclude],
+     [re.compile(x) for x in p.fallback])
     for p in PROFILES
 ]
 
@@ -196,26 +220,30 @@ def normalize_title(title: str) -> str:
 
 
 def match_title(title: str) -> List[Tuple[Profile, str]]:
-    """Return every (profile, 'exact'|'close') the title matches; empty if it is not a target title."""
+    """Return every (profile, 'exact'|'close'|'fallback') the title matches; empty if none.
+
+    'fallback' = a junior title kept only when the institution has nobody closer for that profile.
+    """
     if not title or len(title) > 160:
         return []
     t = normalize_title(title)
-    if not TITLE_GATE.search(t) or NOT_A_LEADER.search(t):
+    if SENTENCE.search(t) or len(t.split()) > 18 or t.startswith("the ") and len(t.split()) > 3:
         return []
-    if SENTENCE.search(t) or len(t.split()) > 18 or t.startswith("the "):
-        return []
-    if HEADING.search(t):
-        return []  # "CIO Senior Leadership", "Advancement Team": a section heading, not a job
-    if not TITLE_GATE.search(" ".join(t.replace("/", " ").split()[:4])):
-        return []  # real titles name the job up front; "Support staff ... of the Registrar" does not
+    if HEADING.search(t) or SUPPORT_STAFF.search(t):
+        return []  # "CIO Senior Leadership" is a section heading; assistants are not the boss
+    # Leader titles name the job up front ("Support staff ... of the Registrar" does not).
+    leader = (bool(TITLE_GATE.search(t)) and not NOT_A_LEADER.search(t)
+              and bool(TITLE_GATE.search(" ".join(t.replace("/", " ").split()[:4]))))
     out: List[Tuple[Profile, str]] = []
-    for profile, exact, close, exclude in _COMPILED:
+    for profile, exact, close, exclude, fallback in _COMPILED:
         if any(rx.search(t) for rx in exclude):
             continue
-        if any(rx.search(t) for rx in exact):
+        if leader and any(rx.search(t) for rx in exact):
             out.append((profile, "exact"))
-        elif any(rx.search(t) for rx in close):
+        elif leader and any(rx.search(t) for rx in close):
             out.append((profile, "close"))
+        elif any(rx.search(t) for rx in fallback):
+            out.append((profile, "fallback"))
     return out
 
 

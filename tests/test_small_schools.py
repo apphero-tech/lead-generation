@@ -1,0 +1,54 @@
+from leadgen.extract import Candidate
+from leadgen.ipeds import format_us_phone
+from leadgen.pipeline import ipeds_chief, merge_candidates
+from leadgen.profiles import match_title
+
+
+def ids(title):
+    return {(p.id, q) for p, q in match_title(title)}
+
+
+def cand(first, last, pid, q, url="https://s.edu/staff"):
+    return Candidate(first, last, pid, q, "t", url)
+
+
+def test_head_of_institution_titles():
+    assert ("head", "exact") in ids("Director")
+    assert ("head", "exact") in ids("President")
+    assert ids("Vice President") == set() and ids("Student Body President") == set()
+
+
+def test_fallback_titles():
+    assert ("adm_dir", "fallback") in ids("Admissions Representative")
+    assert ("wf_dir", "fallback") in ids("Internship Coordinator; Apprenticeship Coordinator")
+    assert ("registrar", "fallback") in ids("Assistant Registrar")
+
+
+def test_fallback_dropped_when_a_real_match_exists():
+    people = merge_candidates([cand("Ann", "Lee", "adm_dir", "fallback"), cand("Bob", "Ray", "adm_dir", "exact")], 0)
+    assert [p["last_name"] for p in people] == ["Ray"]
+    people = merge_candidates([cand("Ann", "Lee", "adm_dir", "fallback")], 0)
+    assert [p["last_name"] for p in people] == ["Lee"]  # nobody better: keep the closest title
+
+
+def test_ipeds_chief_added_unless_site_shows_another_head():
+    inst = {"unitid": "9", "chief_name": "Dr. Tara Scott", "chief_title": "President"}
+    added = ipeds_chief(inst, [], ["<p>Welcome</p>"])
+    assert [(c.first_name, c.last_name, c.profile_id) for c in added] == [("Tara", "Scott", "head")]
+    other = [cand("Lee", "Ng", "head", "exact")]
+    assert ipeds_chief(inst, other, ["<p>Welcome</p>"]) == []  # the website already shows a head
+
+
+def test_big_institutions_keep_only_official_president():
+    from leadgen.pipeline import filter_heads
+    cs = [Candidate(n, "X", "head", "exact", "Director", "https://dept.u.edu/a") for n in ("Ann", "Bob", "Cy", "Dan")]
+    cs.append(Candidate("Eve", "Bell", "head", "exact", "President", "https://www.u.edu/about/administration/"))
+    kept = [c.first_name for c in filter_heads(cs, "https://www.u.edu/")]
+    assert kept == ["Eve"]
+    assert ("head", "exact") not in ids("Director, Finance")
+
+
+def test_ipeds_phone_format():
+    assert format_us_phone("9544000620") == "(954) 400-0620"
+    assert format_us_phone("85098357003632") == "(850) 983-5700 ext. 3632"
+    assert format_us_phone("-1") == ""

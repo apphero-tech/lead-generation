@@ -31,3 +31,8 @@ def test_name_line_with_email():
     html = "<p>Lena Watts <a href='mailto:lwatts@u.edu'>lwatts@u.edu</a>, Director, Development</p>"
     c = find_candidates(page_lines(html), "u")[0]
     assert (c.first_name, c.last_name, c.email) == ("Lena", "Watts", "lwatts@u.edu")
+
+
+def test_title_before_name():
+    c = find_candidates(page_lines("<p>President Dr. Stuart R. Bell</p>"), "u")[0]
+    assert (c.first_name, c.last_name, c.profile_id) == ("Stuart", "Bell", "head")

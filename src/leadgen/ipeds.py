@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import logging
 import zipfile
 from importlib import resources
@@ -57,6 +58,16 @@ def normalize_website(raw: str) -> str:
     return raw
 
 
+def format_us_phone(raw: str) -> str:
+    """IPEDS GENTELE: digits, sometimes with an extension appended (e.g. 85098357003632)."""
+    digits = re.sub(r"\D", "", raw or "")
+    if len(digits) < 10:
+        return ""
+    main, ext = digits[:10], digits[10:]
+    out = f"({main[:3]}) {main[3:6]}-{main[6:]}"
+    return out + (f" ext. {ext}" if ext else "")
+
+
 def load_system_websites() -> Dict[str, str]:
     text = resources.files("leadgen").joinpath("systems.json").read_text(encoding="utf-8")
     return {k: v for k, v in json.loads(text).items() if not k.startswith("_")}
@@ -79,6 +90,9 @@ def read_state(csv_path: Path, state: str) -> List[dict]:
             "name": r["INSTNM"].strip(),
             "website": normalize_website(r["WEBADDR"]),
             "city": r.get("CITY", "").strip(),
+            "chief_name": r.get("CHFNM", "").strip(),
+            "chief_title": r.get("CHFTITLE", "").strip(),
+            "main_phone": format_us_phone(r.get("GENTELE", "")),
             "sector": SECTORS.get(r["SECTOR"].strip(), r["SECTOR"].strip()),
             "system_name": "" if system in ("-1", "-2") else system,
             "is_system": 0,
@@ -96,7 +110,7 @@ def system_entities(institutions: List[dict], state: str) -> List[dict]:
             "state": state,
             "name": name,
             "website": websites.get(name, ""),
-            "city": "",
+            "city": "", "chief_name": "", "chief_title": "", "main_phone": "",
             "sector": "System office",
             "system_name": name,
             "is_system": 1,
@@ -110,10 +124,12 @@ def load_institutions(conn, settings: Settings, state: str) -> int:
     systems = system_entities(campuses, state)
     for inst in campuses + systems:
         conn.execute(
-            "INSERT INTO institutions (unitid, state, name, website, city, sector, system_name, is_system) "
-            "VALUES (:unitid, :state, :name, :website, :city, :sector, :system_name, :is_system) "
+            "INSERT INTO institutions (unitid, state, name, website, city, chief_name, chief_title, main_phone, "
+            "sector, system_name, is_system) VALUES (:unitid, :state, :name, :website, :city, :chief_name, "
+            ":chief_title, :main_phone, :sector, :system_name, :is_system) "
             "ON CONFLICT (unitid) DO UPDATE SET name = excluded.name, website = excluded.website, "
-            "city = excluded.city, "
+            "city = excluded.city, chief_name = excluded.chief_name, chief_title = excluded.chief_title, "
+            "main_phone = excluded.main_phone, "
             "sector = excluded.sector, system_name = excluded.system_name",
             inst,
         )

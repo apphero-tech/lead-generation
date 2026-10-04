@@ -15,12 +15,17 @@ from .db import get_step, set_step
 from .directory import Directory, DirectoryForm
 from .email_pattern import deduce, detect_pattern, name_in_email
 from .extract import Candidate, find_candidates, name_email_pairs, page_lines
-from .names import name_key
-from .profiles import PROFILE_BY_ID
+from .names import name_key, parse_name
+from .profiles import PROFILE_BY_ID, match_title
 
 log = logging.getLogger(__name__)
 
-QUALITY_RANK = {"exact": 0, "close": 1}
+QUALITY_RANK = {"exact": 0, "close": 1, "fallback": 2}
+IPEDS_SOURCE = "https://nces.ed.gov/collegenavigator/?id={unitid}"
+
+
+# Junior "fallback" titles are dropped at institutions where this many people match properly.
+FALLBACK_MAX_PEOPLE = 10
 
 
 def merge_candidates(cands: List[Candidate], max_per_profile: int) -> List[dict]:
@@ -54,6 +59,14 @@ def merge_candidates(cands: List[Candidate], max_per_profile: int) -> List[dict]
     for key, p in people.items():
         for pid in p["roles"]:
             by_profile[pid].append(key)
+    # Junior "fallback" titles only count when nobody closer exists for that profile, and only at
+    # small institutions (a big university always has someone better for the job).
+    proper = sum(1 for p in people.values() if any(r["quality"] != "fallback" for r in p["roles"].values()))
+    for pid, keys in by_profile.items():
+        if proper >= FALLBACK_MAX_PEOPLE or any(people[k]["roles"][pid]["quality"] != "fallback" for k in keys):
+            for k in [k for k in keys if people[k]["roles"][pid]["quality"] == "fallback"]:
+                del people[k]["roles"][pid]
+                keys.remove(k)
     for pid, keys in by_profile.items():
         def rank(k: str):
             r = people[k]["roles"][pid]
@@ -81,6 +94,39 @@ def unit_from_title(page_title: str, host: str) -> str:
     units = [p for p in parts if UNIT_WORDS.search(p) and len(p) <= 90]
     # The most specific part is usually the one nearest the site name (the last unit-like part).
     return units[-1] if units else host
+
+
+HEAD_TITLE = re.compile(r"\b(president|chancellor)\b", re.I)
+
+
+def filter_heads(cands: List[Candidate], website: str) -> List[Candidate]:
+    """Bare titles like "Director" identify the head only at small institutions. When many people
+    match, keep only a President/Chancellor shown on the main site or the president's office site."""
+    heads = {name_key(c.first_name, c.last_name) for c in cands if c.profile_id == "head"}
+    if len(heads) <= 3:
+        return cands
+    base = registered_domain(urlparse(website).netloc)
+    def official(c: Candidate) -> bool:
+        host = urlparse(c.source_url).netloc.lower()
+        return bool(HEAD_TITLE.search(c.found_title)) and (
+            host in (base, "www." + base) or host.startswith("president."))
+    return [c for c in cands if c.profile_id != "head" or official(c)]
+
+
+def ipeds_chief(inst: dict, cands: List[Candidate], htmls: List[str]) -> List[Candidate]:
+    """The institution's chief executive from IPEDS, so every institution has at least its head.
+
+    Skipped when the website already shows a head (IPEDS can lag a year behind)."""
+    name = parse_name(inst.get("chief_name") or "")
+    if not name:
+        return []
+    first, last = name
+    title = inst.get("chief_title") or "Chief executive"
+    if any(c.profile_id == "head" for c in cands):
+        return []
+    matches = match_title(title) or [(PROFILE_BY_ID["head"], "exact")]
+    src = IPEDS_SOURCE.format(unitid=inst["unitid"])
+    return [Candidate(first, last, p.id, q, title, src) for p, q in matches]
 
 
 def pick_title(titles: List[str]) -> str:
@@ -129,6 +175,7 @@ class Pipeline:
         ).fetchall()
         page_info = {r["url"]: (r["source_date"], r["fetched_at"]) for r in rows}
         self._titles = {r["url"]: _page_title(r["html"]) for r in rows}
+        self._main_phone = {unitid: inst.get("main_phone") or ""}
         cands: List[Candidate] = []
         pairs_by_domain: Dict[str, list] = defaultdict(list)
         domains_by_host: Dict[str, Counter] = defaultdict(Counter)
@@ -160,6 +207,8 @@ class Pipeline:
                      if registered_domain(d) == base]
             return local[0] if local else base
 
+        cands = filter_heads(cands, inst["website"])
+        cands.extend(ipeds_chief(inst, cands, [r["html"] for r in rows]))
         people = merge_candidates(cands, self.s.max_candidates_per_profile)
         form = None
         if self.s.use_directory_search and people:
@@ -225,12 +274,22 @@ class Pipeline:
         elif hit and hit.phone:
             phone, phone_status, phone_source = hit.phone, "published", f"official directory search: {form.page_url}"
 
+        ipeds_only = all(u.startswith("https://nces.ed.gov/") for r in p["roles"].values() for u in r["sources"])
+        if not phone and any(u.startswith("https://nces.ed.gov/") for r in p["roles"].values() for u in r["sources"]):
+            phone, phone_status = self._main_phone.get(unitid, ""), "main switchboard (IPEDS)"
+            phone_source = IPEDS_SOURCE.format(unitid=unitid)
+            if not phone:
+                phone_status = "not found"
+        if ipeds_only:
+            reasons.append("from the federal IPEDS directory (2024 data), not seen on the website; confirm still in role")
         all_sources: List[str] = []
         dates: List[str] = []
         verified: List[str] = []
         for pid, role in p["roles"].items():
             if role["quality"] == "close":
                 reasons.append(f"'{PROFILE_BY_ID[pid].target_title}' is only the closest match to the title found")
+            elif role["quality"] == "fallback":
+                reasons.append(f"no '{PROFILE_BY_ID[pid].target_title}' found; this is the closest title at this institution")
             if role.get("competitors"):
                 reasons.append(f"{role['competitors'] + 1} people match '{PROFILE_BY_ID[pid].target_title}'")
             for u in role["sources"]:

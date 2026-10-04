@@ -30,7 +30,9 @@ README = [
     ("manual_check_needed = yes", "Something needs a human look; check_reasons says what (deduced email, closest-match title, old source, several candidates, ...)."),
     ("last_verified_date", "Date the tool last read the source page online."),
     ("responsibilities", "'(from source page)' = sentence taken from the page; '(typical scope for this title)' = generic description of the job."),
-    ("Coverage sheet", "One row per institution: who was found for each of the 17 profiles. Empty = nobody found (never invented)."),
+    ("Coverage sheet", "One row per institution: who was found for each of the 18 profiles. Empty = nobody found (never invented)."),
+    ("phone_status = main switchboard (IPEDS)", "The institution's general phone number from the federal IPEDS directory, not a direct line."),
+    ("closest title", "check_reasons 'this is the closest title at this institution' = nobody holds the target job; this is the nearest role (common at small schools)."),
 ]
 
 HEADER_FILL = PatternFill("solid", fgColor="1F3864")

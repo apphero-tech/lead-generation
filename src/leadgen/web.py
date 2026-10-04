@@ -150,7 +150,7 @@ ul.files li:first-child{border-top:0}ul.files a{color:var(--accent);word-break:b
 .hidden{display:none}
 </style></head><body><main>
 <h1>Recherche de contacts universitaires</h1>
-<p class="sub">17 profils cibles (admissions, advancement, IT/CRM, formation continue). Sources publiques gratuites uniquement.</p>
+<p class="sub">18 profils cibles (direction, admissions, advancement, IT/CRM, formation continue). Sources publiques gratuites uniquement.</p>
 
 <div class="card" id="form">
   <label for="country">Pays</label>

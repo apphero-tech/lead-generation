@@ -76,8 +76,14 @@ def page_lines(html: str) -> List[str]:
     return lines
 
 
+LEADING_TITLE = re.compile(r"^(President|Chancellor|Director|Executive Director|Campus Director|CEO)\s+(.+)$")
+
+
 def split_name_title(line: str) -> Tuple[Optional[Tuple[str, str]], str]:
     """'Jane Doe, Vice President, Advancement' -> (('Jane','Doe'), 'Vice President, Advancement')."""
+    m = LEADING_TITLE.match(line)
+    if m and parse_name(m.group(2)):
+        return parse_name(m.group(2)), m.group(1)  # "President Dr. Jane Doe"
     for sep in (", ", " - ", " – ", " — ", " | ", ": "):
         if sep in line:
             left, right = line.split(sep, 1)
