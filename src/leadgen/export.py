@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from collections import Counter
+import re
 from pathlib import Path
+from urllib.parse import urlencode
 from typing import Dict, List, Optional, Tuple
 
 from openpyxl import Workbook
@@ -15,8 +17,16 @@ CONTACT_COLUMNS = [
     "state", "institution", "institution_website", "system", "sector", "unit", "first_name", "last_name",
     "target_profiles", "found_title", "role_family", "responsibilities", "email", "email_status",
     "email_source", "phone", "phone_status", "source_urls", "last_verified_date",
-    "manual_check_needed", "check_reasons",
+    "manual_check_needed", "check_reasons", "linkedin_search",
 ]
+LINK_COLUMNS = {"linkedin_search"}
+
+
+def linkedin_search_url(first: str, last: str, institution: str) -> str:
+    """People-search link for a manual check on LinkedIn (the tool itself never visits LinkedIn).
+    The campus suffix is dropped ("Keiser University-Ft Lauderdale" -> "Keiser University")."""
+    core = re.split(r"\s*[-–]\s*", institution or "")[0]
+    return "https://www.linkedin.com/search/results/people/?" + urlencode({"keywords": f"{first} {last} {core}".strip()})
 
 README = [
     ("What this file is", "Contacts found on public university web pages for the target profiles. Free sources only."),
@@ -30,6 +40,7 @@ README = [
     ("manual_check_needed = yes", "Something needs a human look; check_reasons says what (deduced email, closest-match title, old source, several candidates, ...)."),
     ("last_verified_date", "Date the tool last read the source page online."),
     ("responsibilities", "'(from source page)' = sentence taken from the page; '(typical scope for this title)' = generic description of the job."),
+    ("linkedin_search", "Click to open a LinkedIn people search for this person (name + institution) in your browser, to check their current role by hand. The tool itself never visits LinkedIn."),
     ("Coverage sheet", "One row per institution: who was found for each of the 18 profiles. Empty = nobody found (never invented)."),
     ("phone_status = main switchboard (IPEDS)", "The institution's general phone number from the federal IPEDS directory, not a direct line."),
     ("closest title", "check_reasons 'this is the closest title at this institution' = nobody holds the target job; this is the nearest role (common at small schools)."),
@@ -87,6 +98,7 @@ def collect_rows(conn, state: str, unitids: Optional[List[str]] = None) -> List[
             "last_verified_date": p["last_verified_date"],
             "manual_check_needed": "yes" if p["manual_check"] else "no",
             "check_reasons": p["check_reasons"],
+            "linkedin_search": linkedin_search_url(p["first_name"], p["last_name"], p["inst_name"]),
             "_pids": pids,
             "_unitid": p["unitid"],
         })
@@ -150,6 +162,13 @@ def _sheet(ws, header: List[str], data: List[list], widths: Dict[str, int]) -> N
     for row in ws.iter_rows(min_row=2):
         for c in row:
             c.alignment = Alignment(vertical="top", wrap_text=True)
+    for i, h in enumerate(header, 1):
+        if h in LINK_COLUMNS:
+            for (cell,) in ws.iter_rows(min_row=2, min_col=i, max_col=i):
+                if cell.value:
+                    cell.hyperlink = cell.value
+                    cell.value = "Open LinkedIn search"
+                    cell.font = Font(color="0563C1", underline="single")
 
 
 def export_state(conn, state: str, out_dir: Path, unitids: Optional[List[str]] = None,
@@ -162,7 +181,7 @@ def export_state(conn, state: str, out_dir: Path, unitids: Optional[List[str]] =
     ws.title = "Contacts"
     widths = {"institution": 30, "responsibilities": 50, "source_urls": 50, "check_reasons": 50,
               "found_title": 40, "target_profiles": 35, "email": 30, "email_source": 40,
-              "institution_website": 28, "sector": 22, "system": 25, "unit": 35}
+              "institution_website": 28, "sector": 22, "system": 25, "unit": 35, "linkedin_search": 22}
     _sheet(ws, CONTACT_COLUMNS, [[r[c] for c in CONTACT_COLUMNS] for r in rows], widths)
 
     cov = wb.create_sheet("Coverage")

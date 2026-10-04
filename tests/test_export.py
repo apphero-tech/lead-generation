@@ -26,3 +26,19 @@ def test_export_columns_and_rows(tmp_path):
     assert row["email_status"] == "deduced" and row["manual_check_needed"] == "yes"
     assert row["target_profiles"] == "VP Advancement; Executive Director, University Foundation"
     assert ws.max_row == 2  # one row per person, not per profile
+
+
+def test_linkedin_search_link(tmp_path):
+    from leadgen.export import linkedin_search_url
+    url = linkedin_search_url("Amy", "Layman", "Keiser University-Ft Lauderdale")
+    assert url == "https://www.linkedin.com/search/results/people/?keywords=Amy+Layman+Keiser+University"
+    conn = connect(tmp_path / "t.db")
+    conn.execute("INSERT INTO institutions (unitid, state, name, website, sector, system_name, is_system) "
+                 "VALUES ('1','FL','Test U','https://t.edu','Public','',0)")
+    conn.execute("INSERT INTO persons (id, unitid, person_key, first_name, last_name, email_status, phone_status, "
+                 "manual_check) VALUES (1,'1','jane|doe','Jane','Doe','not found','not found',0)")
+    conn.execute("INSERT INTO person_roles VALUES (1,'cio','CIO','exact','https://t.edu/a',NULL)")
+    conn.commit()
+    ws = load_workbook(export_state(conn, "FL", tmp_path))["Contacts"]
+    cell = ws.cell(row=2, column=CONTACT_COLUMNS.index("linkedin_search") + 1)
+    assert cell.value == "Open LinkedIn search" and "keywords=Jane+Doe+Test+U" in cell.hyperlink.target
