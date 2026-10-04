@@ -15,7 +15,7 @@ from .profiles import PROFILE_BY_ID, PROFILES
 
 # The columns used most come first; details follow.
 CONTACT_COLUMNS = [
-    "last_name", "first_name", "email", "email_status", "linkedin_search", "phone", "institution",
+    "no", "last_name", "first_name", "email", "email_status", "linkedin_search", "phone", "institution",
     "target_profiles", "found_title", "responsibilities",
     "state", "institution_website", "system", "sector", "unit", "contact_level", "role_family",
     "email_source", "phone_status", "source_urls", "last_verified_date",
@@ -185,14 +185,16 @@ def export_state(conn, state: str, out_dir: Path, unitids: Optional[List[str]] =
     wb = Workbook()
     ws = wb.active
     ws.title = "Contacts"
-    widths = {"last_name": 18, "first_name": 16, "email": 32, "email_status": 14, "phone": 18, "institution": 30, "responsibilities": 50, "source_urls": 50, "check_reasons": 50,
+    widths = {"no": 6, "last_name": 18, "first_name": 16, "email": 32, "email_status": 14, "phone": 18, "institution": 30, "responsibilities": 50, "source_urls": 50, "check_reasons": 50,
               "found_title": 40, "target_profiles": 35, "email": 30, "email_source": 40,
               "institution_website": 28, "sector": 22, "system": 25, "unit": 35, "linkedin_search": 22, "contact_level": 24}
+    for n, r in enumerate(rows, 1):
+        r["no"] = n  # row number 1, 2, 3...
     _sheet(ws, CONTACT_COLUMNS, [[r[c] for c in CONTACT_COLUMNS] for r in rows], widths)
-    for row in ws.iter_rows(min_row=2, min_col=1, max_col=len(NAME_COLUMNS)):
+    for row in ws.iter_rows(min_row=2, min_col=2, max_col=1 + len(NAME_COLUMNS)):
         for cell in row:
             cell.font = NAME_FONT
-    ws.freeze_panes = "C2"  # header row and name columns stay visible while scrolling
+    ws.freeze_panes = "D2"  # header row, number and name columns stay visible while scrolling
 
     cov = wb.create_sheet("Coverage")
     insts = conn.execute(

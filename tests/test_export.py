@@ -45,7 +45,7 @@ def test_linkedin_search_link(tmp_path):
 
 
 def test_first_columns_and_bold_name(tmp_path):
-    assert CONTACT_COLUMNS[:10] == ["last_name", "first_name", "email", "email_status", "linkedin_search",
+    assert CONTACT_COLUMNS[:11] == ["no", "last_name", "first_name", "email", "email_status", "linkedin_search",
                                     "phone", "institution", "target_profiles", "found_title", "responsibilities"]
     assert len(CONTACT_COLUMNS) == len(set(CONTACT_COLUMNS))
     conn = connect(tmp_path / "t.db")
@@ -56,5 +56,5 @@ def test_first_columns_and_bold_name(tmp_path):
     conn.execute("INSERT INTO person_roles VALUES (1,'cio','CIO','exact','https://t.edu/a',NULL)")
     conn.commit()
     ws = load_workbook(export_state(conn, "FL", tmp_path))["Contacts"]
-    assert [ws.cell(2, i).value for i in (1, 2, 3, 4)] == ["Doe", "Jane", "jd@t.edu", "published"]
-    assert ws.cell(2, 1).font.bold and ws.cell(2, 2).font.size == 13 and not ws.cell(2, 3).font.bold
+    assert [ws.cell(2, i).value for i in (1, 2, 3, 4, 5)] == [1, "Doe", "Jane", "jd@t.edu", "published"]
+    assert ws.cell(2, 2).font.bold and ws.cell(2, 3).font.size == 13 and not ws.cell(2, 4).font.bold
