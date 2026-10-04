@@ -138,7 +138,11 @@ def ipeds_chief(inst: dict, cands: List[Candidate], htmls: List[str]) -> List[Ca
     title = inst.get("chief_title") or "Chief executive"
     if any(c.profile_id == "head" for c in cands):
         return []
-    matches = match_title(title) or [(PROFILE_BY_ID["head"], "exact")]
+    # IPEDS sometimes lists whoever filed the survey ("Chief Data Officer"): only a head-like or
+    # target title is labelled as such; anything else is listed as other staff.
+    matches = match_title(title) or ([(PROFILE_BY_ID["head"], "exact")] if not staff_rank(title) or
+                                     re.search(r"\b(president|chancellor|director|ceo|superintendent)\b", title, re.I)
+                                     else [(PROFILE_BY_ID["other"], "fallback")])
     src = IPEDS_SOURCE.format(unitid=inst["unitid"])
     return [Candidate(first, last, p.id, q, title, src) for p, q in matches]
 

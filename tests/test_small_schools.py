@@ -60,3 +60,10 @@ def test_broad_staff_when_no_target_role():
             "<div><h3>Cy Moe</h3><p>Student Ambassador</p></div>")
     got = [(c.first_name, c.profile_id) for c in broad_staff([("https://s.edu/staff", html)], 15)]
     assert got == [("Bob", "other"), ("Ann", "other")]  # most senior first; students excluded
+
+
+def test_ipeds_non_head_title_not_labelled_head():
+    inst = {"unitid": "9", "chief_name": "Erica Amorim", "chief_title": "Chief Data Officer"}
+    assert [c.profile_id for c in ipeds_chief(inst, [], [""])] == ["other"]
+    inst = {"unitid": "9", "chief_name": "Arthur Keiser", "chief_title": "Chancellor"}
+    assert [c.profile_id for c in ipeds_chief(inst, [], [""])] == ["head"]
