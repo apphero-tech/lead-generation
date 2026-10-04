@@ -207,3 +207,48 @@ def name_email_pairs(html: str) -> Iterable[Tuple[str, str, str]]:
                     name = parse_name(head.get_text(" ", strip=True))
         if name:
             yield name[0], name[1], email
+
+
+def profile_links(html: str, page_url: str, first: str, last: str) -> List[str]:
+    """Links on a page whose text is this person's name (typically their bio / profile page)."""
+    from urllib.parse import urljoin, urldefrag
+    from .names import name_key
+    want = name_key(first, last)
+    full = f"{first} {last}".lower()
+    out: List[str] = []
+    for a in BeautifulSoup(html, "html.parser").find_all("a", href=True):
+        href = a["href"].strip()
+        if href.startswith(("mailto:", "tel:", "javascript:", "#")):
+            continue
+        text = a.get_text(" ", strip=True)
+        if not text or len(text) > 80:
+            continue
+        name = parse_name(text)
+        if (name and name_key(*name) == want) or full in text.lower():
+            link = urldefrag(urljoin(page_url, href))[0]
+            if link.startswith("http") and link.rstrip("/") != page_url.rstrip("/") and link not in out:
+                out.append(link)
+    return out
+
+
+def parse_profile(html: str, first: str, last: str) -> Tuple[str, str]:
+    """(email, phone) from a person's own profile page: taken next to their name, and the email
+    must plausibly belong to them (so footer / generic office addresses are ignored)."""
+    from .email_pattern import name_in_email
+    lines = page_lines(html)
+    l_low = last.lower()
+    starts = [i for i, line in enumerate(lines) if l_low in line.lower() and len(line) < 120]
+    windows = [(i, min(len(lines), i + 25)) for i in starts[:3]] or [(0, len(lines))]
+    email = phone = ""
+    for lo, hi in windows:
+        for k in range(lo, hi):
+            for addr in EMAIL_RE.findall(lines[k]):
+                addr = addr.lower()
+                if not email and (email_matches_name(addr, first, last) or name_in_email(addr, first, last)):
+                    email = addr
+            m = PHONE_RE.search(lines[k])
+            if m and not phone and starts and not re.search(r"\bfax\b", lines[k], re.I):
+                phone = format_phone(m)
+        if email:
+            break
+    return email, phone

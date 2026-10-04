@@ -12,9 +12,9 @@ from urllib.parse import urlparse
 from .config import Settings
 from .crawler import NEWS, Crawler, campus_slugs, mentions_campus, registered_domain
 from .db import get_step, set_step
-from .directory import Directory, DirectoryForm
+from .directory import Directory, DirectoryForm, DirectoryHit
 from .email_pattern import deduce, detect_pattern, name_in_email
-from .extract import Candidate, find_candidates, name_email_pairs, page_lines
+from .extract import Candidate, find_candidates, name_email_pairs, page_lines, parse_profile, profile_links
 from .names import name_key, parse_name
 from .profiles import PROFILE_BY_ID, match_staff, match_title, staff_rank
 
@@ -236,8 +236,10 @@ class Pipeline:
         self._titles = {r["url"]: _page_title(r["html"]) for r in rows}
         self._main_phone = {unitid: inst.get("main_phone") or ""}
         self._inst = inst
+        self._host_patterns: Dict[tuple, tuple] = {}
         cands: List[Candidate] = []
         pairs_by_domain: Dict[str, list] = defaultdict(list)
+        pairs_by_host: Dict[tuple, list] = defaultdict(list)  # (web host, mail domain) -> pairs
         domains_by_host: Dict[str, Counter] = defaultdict(Counter)
         for r in rows:
             cands.extend(find_candidates(page_lines(r["html"]), r["url"]))
@@ -245,9 +247,52 @@ class Pipeline:
             for first, last, email in name_email_pairs(r["html"]):
                 domain = email.split("@")[1]
                 pairs_by_domain[domain].append((first, last, email))
+                pairs_by_host[(host, domain)].append((first, last, email))
                 domains_by_host[host][domain] += 1
 
         base = registered_domain(urlparse(inst["website"]).netloc)
+        cands = filter_heads(cands, inst["website"])
+        if not cands:
+            # Nobody for any target profile: list the staff the website does name (most senior first).
+            cands = broad_staff([(r["url"], r["html"]) for r in rows], self.s.broad_max_people)
+        cands.extend(ipeds_chief(inst, cands, [r["html"] for r in rows]))
+        people = merge_candidates(cands, self.s.max_candidates_per_profile)
+
+        # (a) People without an email: open their own profile page when their name is a link.
+        if self.progress:
+            self.progress.update(stage="Lecture des fiches individuelles")
+        html_by_url = {r["url"]: r["html"] for r in rows}
+        self._profile_pages(people, html_by_url, base, page_info)
+
+        # (b) Official directory search (also confirms the person still works there).
+        form = None
+        hits: Dict[str, DirectoryHit] = {}
+        if self.s.use_directory_search and people:
+            probes = [(p["first_name"], p["last_name"]) for p in people]
+            form = self.directory.find_form(unitid, inst["website"], probes)
+        if form:
+            if self.progress:
+                self.progress.update(stage="Vérification dans l’annuaire officiel")
+            for p in people:
+                if self.progress:
+                    self.progress.check()
+                    self.progress.incr("lookups")
+                hits[p["person_key"]] = self.directory.lookup(unitid, form, p["person_key"], p["first_name"], p["last_name"])
+
+        # (c) Learn each mail domain's format, including from the addresses of the contacts found
+        # above (e.g. 16 published "flast@nova.edu" addresses let us guess the other 14).
+        for p in people:
+            found = [e for e, _ in p["emails"]]
+            hit = hits.get(p["person_key"])
+            if hit and hit.email:
+                found.append(hit.email)
+            hosts = {urlparse(u).netloc for r in p["roles"].values() for u in r["sources"]}
+            for e in dict.fromkeys(found):
+                d = e.split("@")[1]
+                pairs_by_domain[d].append((p["first_name"], p["last_name"], e))
+                for h in hosts:
+                    domains_by_host[h][d] += 1
+                    pairs_by_host[(h, d)].append((p["first_name"], p["last_name"], e))
         patterns: Dict[str, tuple] = {}
         for domain, pairs in pairs_by_domain.items():
             res = detect_pattern(pairs, self.s.pattern_min_examples, self.s.pattern_min_share)
@@ -260,33 +305,38 @@ class Pipeline:
             )
             if res:
                 patterns[domain] = res
+        # The same domain can use different formats on different sub-sites (Nova: first.last on
+        # undergrad.nova.edu, flast on giving.nova.edu): learn per sub-site too, used first.
+        host_patterns: Dict[tuple, tuple] = {}
+        for key, pairs in pairs_by_host.items():
+            res = detect_pattern(pairs, self.s.pattern_min_examples, self.s.pattern_min_share)
+            if res:
+                host_patterns[key] = res
+        self._host_patterns = host_patterns
+        # Contacts' own mail domains, most used first (some schools mail from another domain,
+        # e.g. a technical college using its school district's addresses).
+        contact_domains = Counter(e.split("@")[1] for p in people for e, _ in p["emails"])
+
         # Mail domain to use for a person found on a given web host: the domain most published on
-        # that host's own pages (e.g. a college sub-site), else the institution's root domain.
+        # that host's own pages (e.g. a college sub-site), else the institution's root domain, else
+        # the domain most used by the institution's other contacts.
         def domain_for(host: str) -> str:
             local = [d for d, _ in domains_by_host.get(host, Counter()).most_common()
                      if registered_domain(d) == base]
-            return local[0] if local else base
+            if local:
+                return local[0]
+            if base in patterns or not contact_domains:
+                return base
+            return contact_domains.most_common(1)[0][0]
 
-        cands = filter_heads(cands, inst["website"])
-        if not cands:
-            # Nobody for any target profile: list the staff the website does name (most senior first).
-            cands = broad_staff([(r["url"], r["html"]) for r in rows], self.s.broad_max_people)
-        cands.extend(ipeds_chief(inst, cands, [r["html"] for r in rows]))
-        people = merge_candidates(cands, self.s.max_candidates_per_profile)
-        form = None
-        if self.s.use_directory_search and people:
-            probes = [(p["first_name"], p["last_name"]) for p in people]
-            form = self.directory.find_form(unitid, inst["website"], probes)
         self.conn.execute(
             "DELETE FROM person_roles WHERE person_id IN (SELECT id FROM persons WHERE unitid = ?)", (unitid,)
         )
         self.conn.execute("DELETE FROM persons WHERE unitid = ?", (unitid,))
         if self.progress:
-            self.progress.update(stage="Vérification dans l’annuaire officiel" if form else "Enregistrement des contacts")
+            self.progress.update(stage="Enregistrement des contacts")
         for p in people:
-            if self.progress:
-                self.progress.check()
-            self._store_person(unitid, p, page_info, domain_for, patterns, form)
+            self._store_person(unitid, p, page_info, domain_for, patterns, form, hits.get(p["person_key"]))
         self.conn.execute(
             "INSERT INTO extraction_stats (unitid, raw_candidates, persons, pages_scanned) VALUES (?, ?, ?, ?) "
             "ON CONFLICT (unitid) DO UPDATE SET raw_candidates = excluded.raw_candidates, "
@@ -297,18 +347,45 @@ class Pipeline:
         log.info("%s: %d pages scanned, %d raw matches, %d people kept", inst["name"], len(rows), len(cands), len(people))
         return len(people)
 
-    def _store_person(self, unitid, p, page_info, domain_for, patterns, form: Optional[DirectoryForm]) -> None:
+    def _profile_pages(self, people: List[dict], html_by_url: Dict[str, str], base: str, page_info: dict) -> None:
+        """Open the profile page linked from a person's name to find their email / phone."""
+        budget = self.s.max_profile_fetches_per_institution
+        for p in people:
+            if p["emails"] or budget <= 0:
+                continue
+            links: List[str] = []
+            for role in p["roles"].values():
+                for u in role["sources"]:
+                    if u in html_by_url:
+                        links += [l for l in profile_links(html_by_url[u], u, p["first_name"], p["last_name"])
+                                  if registered_domain(urlparse(l).netloc) == base and l not in links]
+            for link in links[:2]:
+                if self.progress:
+                    self.progress.check()
+                budget -= 1
+                row = self.crawler.fetch(link)
+                if not row or not row.get("html"):
+                    continue
+                email, phone = parse_profile(row["html"], p["first_name"], p["last_name"])
+                if email or phone:
+                    page_info[link] = (row.get("source_date"), row.get("fetched_at"))
+                    p.setdefault("profile_sources", []).append(link)
+                    if email:
+                        p["emails"].append((email, link))
+                    if phone:
+                        p["phones"].append((phone, link))
+                    if email:
+                        break
+
+    def _store_person(self, unitid, p, page_info, domain_for, patterns, form: Optional[DirectoryForm],
+                      hit: Optional[DirectoryHit] = None) -> None:
         reasons: List[str] = []
         email, email_status, email_source = "", "not found", ""
-        hit = None
-        if form:
-            hit = self.directory.lookup(unitid, form, p["person_key"], p["first_name"], p["last_name"])
+        if form and hit is not None:
             if not (hit.email or hit.phone):
                 reasons.append("not found in the official directory search (may have left, or listed under another name)")
             elif hit.entries > 1:
                 reasons.append(f"{hit.entries} directory entries share this name; email may belong to a namesake")
-        if form and self.progress:
-            self.progress.incr("lookups")
         if hit and hit.email:
             email, email_status = hit.email, "published"
             email_source = f"official directory search: {form.page_url}"
@@ -320,13 +397,22 @@ class Pipeline:
             email_status = "published"
         else:
             hosts = [urlparse(u).netloc for role in p["roles"].values() for u in role["sources"]]
-            domain = next((domain_for(h) for h in hosts if domain_for(h) in patterns), None)
-            if domain:
-                email = deduce(patterns[domain][0], p["first_name"], p["last_name"], domain)
+            choice = None  # (pattern info, domain, where)
+            for h in hosts:  # format of the sub-site the person was found on, first
+                d = domain_for(h)
+                if (h, d) in self._host_patterns:
+                    choice = (self._host_patterns[(h, d)], d, f" on {h}")
+                    break
+            if not choice:
+                d = next((domain_for(h) for h in hosts if domain_for(h) in patterns), None)
+                if d:
+                    choice = (patterns[d], d, "")
+            if choice:
+                ex, domain, where = choice
+                email = deduce(ex[0], p["first_name"], p["last_name"], domain)
             if email:
                 email_status = "deduced"
-                ex = patterns[domain]
-                email_source = f"format {ex[0]}@{domain} seen on {ex[1]} of {ex[2]} published addresses"
+                email_source = f"format {ex[0]}@{domain}{where}: seen on {ex[1]} of {ex[2]} published addresses"
                 reasons.append("email deduced from the email format, not published")
         if email_status == "not found":
             reasons.append("no published email and no reliable email format for this institution")
@@ -360,6 +446,9 @@ class Pipeline:
             for u in role["sources"]:
                 if u not in all_sources:
                     all_sources.append(u)
+        for u in p.get("profile_sources", []):
+            if u not in all_sources:
+                all_sources.append(u)
         for u in all_sources:
             sd, fetched = page_info.get(u, (None, None))
             if sd:

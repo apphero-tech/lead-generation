@@ -32,6 +32,8 @@ class Settings:
     max_candidates_per_profile: int = 0
     # When nobody matches any target profile, list up to this many other named staff members.
     broad_max_people: int = 15
+    # Profile pages opened (name links) for people without an email, per institution.
+    max_profile_fetches_per_institution: int = 80
     # Look people up in the institution's own directory search form when one is found.
     use_directory_search: bool = True
     # A source older than this is flagged for manual check.
