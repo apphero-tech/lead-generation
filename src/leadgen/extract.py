@@ -118,6 +118,32 @@ def format_phone(m: re.Match) -> str:
     return f"({m.group(1)}) {m.group(2)}-{m.group(3)}"
 
 
+# Bio sentences: "Dr. Jane B. Doe has served as President of X since 2024",
+# "John Roe was named Vice President for Advancement in May", "Ann Lee joined X in 2020 as Registrar".
+BIO_SENTENCE = re.compile(
+    r"(?P<name>(?:(?:Dr|Mr|Ms|Mrs)\.\s+)?[A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]*\.?){1,3})\s*,?\s+"
+    r"(?:has served as|has been|serves as|is the|is|was named|was appointed|became|joined\s[^.]{0,60}?\sas)\s+"
+    r"(?:the\s+|our\s+|an?\s+)?(?:new\s+|interim\s+)?"
+    r"(?P<title>[A-Z][^.;:()]{1,110}?)(?=\s+(?:since|in|from|where|until|at)\s|\s+and\s+[a-z]|[.,;]|$)")
+# "President of Nevada State University" -> "President" (the job, without the institution).
+TITLE_TAIL = re.compile(r"\s+(?:of|at|for)\s+(?:the\s+)?[A-Z][\w .&'’-]*?"
+                        r"(?:University|College|Institute|School|Academy|State|System)\b.*$")
+
+
+def bio_candidates(line: str, url: str) -> List[Candidate]:
+    out: List[Candidate] = []
+    if len(line) > 500:
+        return out
+    for m in BIO_SENTENCE.finditer(line):
+        name = parse_name(m.group("name"))
+        title = TITLE_TAIL.sub("", m.group("title").strip())
+        if not name:
+            continue
+        for profile, quality in match_title(title):
+            out.append(Candidate(name[0], name[1], profile.id, quality, title, url))
+    return out
+
+
 def find_candidates(lines: List[str], url: str, matcher=match_title) -> List[Candidate]:
     out: List[Candidate] = []
     if NON_STAFF_PAGE.search(url):
@@ -127,6 +153,8 @@ def find_candidates(lines: List[str], url: str, matcher=match_title) -> List[Can
         name, title = split_name_title(strip_contact(line))
         matches = matcher(title)
         if not matches:
+            if matcher is match_title and len(line) > 40:
+                out.extend(bio_candidates(line, url))
             continue
         name_idx = i
         if not name:

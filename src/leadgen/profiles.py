@@ -271,7 +271,19 @@ STAFF_RANKS = [
     r"\b(assistant|associate)\b",
 ]
 _STAFF_RANKS = [re.compile(x) for x in STAFF_RANKS]
-NOT_STAFF = re.compile(r"\b(student|alumn\w*|graduate|class of|intern|volunteer|trustee|board member|patient|parent)\b")
+NOT_STAFF = re.compile(r"\b(student|graduate|class of|intern|volunteer|trustee|board member|patient|parent)\b")
+# The last-resort list stays within the target families: enrollment/admissions, advancement,
+# IT/CRM, continuing education/workforce, and senior leadership. Libraries, athletics, faculty...
+# are never listed.
+RELEVANT_STAFF = re.compile(
+    r"\b(admissions?|enrollment|recruit\w*|registrar|records|financial aid|advancement|development|"
+    r"fundrais\w*|foundation|alumni|donor|gifts?|giving|philanthropy|information technology|technology|"
+    r"information systems|systems|crm|salesforce|slate|erp|data|continuing|professional (education|studies)|"
+    r"executive education|extended|workforce|career|internship|apprenticeship|training|"
+    r"president|chancellor|provost|chief|vice president|cabinet|executive director)\b")
+IRRELEVANT_STAFF = re.compile(
+    r"\b(library|librar\w+|athletic\w*|coach|sports?|nurs\w+|counseling center|faculty|professor|"
+    r"instructor|lecturer|teacher|liaison areas|custodian|facilities|police|dining|housing|chaplain)\b")
 
 
 def staff_rank(title: str) -> Optional[int]:
@@ -280,6 +292,8 @@ def staff_rank(title: str) -> Optional[int]:
         return None
     t = normalize_title(title)
     if SENTENCE.search(t) or HEADING.search(t) or NOT_STAFF.search(t) or len(t.split()) > 12:
+        return None
+    if IRRELEVANT_STAFF.search(t) or not RELEVANT_STAFF.search(t):
         return None
     for rank, rx in enumerate(_STAFF_RANKS):
         if rx.search(t):

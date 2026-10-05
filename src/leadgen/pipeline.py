@@ -104,6 +104,9 @@ def filter_heads(cands: List[Candidate], website: str) -> List[Candidate]:
     match, keep only a President/Chancellor shown on the main site or the president's office site."""
     # News stories name club / student-government "presidents": never a source for the head.
     cands = [c for c in cands if c.profile_id != "head" or not NEWS.search(c.source_url)]
+    # A real President/Chancellor outranks bare "Director" titles (often a department's director).
+    if any(c.profile_id == "head" and HEAD_TITLE.search(c.found_title) for c in cands):
+        cands = [c for c in cands if c.profile_id != "head" or HEAD_TITLE.search(c.found_title)]
     heads = {name_key(c.first_name, c.last_name) for c in cands if c.profile_id == "head"}
     if len(heads) <= 3:
         return cands
@@ -161,7 +164,7 @@ def ipeds_chief(inst: dict, cands: List[Candidate], htmls: List[str]) -> List[Ca
         return []
     # IPEDS sometimes lists whoever filed the survey ("Chief Data Officer"): only a head-like or
     # target title is labelled as such; anything else is listed as other staff.
-    matches = match_title(title) or ([(PROFILE_BY_ID["head"], "exact")] if not staff_rank(title) or
+    matches = match_title(title) or ([(PROFILE_BY_ID["head"], "exact")] if staff_rank(title) is None or
                                      re.search(r"\b(president|chancellor|director|ceo|superintendent)\b", title, re.I)
                                      else [(PROFILE_BY_ID["other"], "fallback")])
     src = IPEDS_SOURCE.format(unitid=inst["unitid"])

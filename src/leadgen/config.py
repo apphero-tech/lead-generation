@@ -23,7 +23,8 @@ class Settings:
     # Minimum seconds between two requests to the same host (robots.txt Crawl-delay wins if larger).
     per_host_delay: float = 1.0
     max_pages_per_institution: int = 400
-    max_pages_per_host: int = 30
+    max_pages_per_host: int = 150
+    max_pages_per_section: int = 20
     max_depth: int = 4
     max_page_bytes: int = 3_000_000
 

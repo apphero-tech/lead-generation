@@ -56,10 +56,12 @@ def test_ipeds_phone_format():
 
 def test_broad_staff_when_no_target_role():
     from leadgen.pipeline import broad_staff
-    html = ("<div><h3>Ann Lee</h3><p>Guidance Counselor</p></div><div><h3>Bob Ray</h3><p>Nursing Director</p></div>"
-            "<div><h3>Cy Moe</h3><p>Student Ambassador</p></div>")
+    html = ("<div><h3>Ann Lee</h3><p>Admissions Counselor</p></div><div><h3>Bob Ray</h3><p>Financial Aid Director</p></div>"
+            "<div><h3>Cy Moe</h3><p>Student Ambassador</p></div><div><h3>Dee Fry</h3><p>Evening Librarian</p></div>"
+            "<div><h3>Eli Park</h3><p>Athletics Director</p></div>")
     got = [(c.first_name, c.profile_id) for c in broad_staff([("https://s.edu/staff", html)], 15)]
-    assert got == [("Bob", "other"), ("Ann", "other")]  # most senior first; students excluded
+    # Most senior first; students, library and athletics (outside the target families) excluded.
+    assert got == [("Bob", "other"), ("Ann", "other")]
 
 
 def test_ipeds_non_head_title_not_labelled_head():
@@ -80,3 +82,16 @@ def test_network_campus_level():
     assert contact_level(inst, ["https://x.edu/campuses/fort-lauderdale/"], {}) == "this campus"
     assert contact_level({**inst, "site_shared_by": "1"}, ["https://x.edu/leadership"], {}) == "this campus"
     assert contact_level({**inst, "chief_shared_by": "1"}, [ipeds], {}) == "this campus"
+
+
+def test_crawl_budget_is_spread_per_section():
+    from leadgen.crawler import section_of
+    assert section_of("https://nevadastate.edu/admissions/tours/") == "nevadastate.edu/admissions"
+    assert section_of("https://it.ufl.edu/") == "it.ufl.edu/"
+
+
+def test_president_outranks_bare_director():
+    from leadgen.pipeline import filter_heads
+    cs = [Candidate("Rik", "Gad", "head", "exact", "Director", "https://n.edu/a"),
+          Candidate("Sandra", "Rich", "head", "exact", "President", "https://n.edu/about/leadership/")]
+    assert [c.first_name for c in filter_heads(cs, "https://n.edu/")] == ["Sandra"]

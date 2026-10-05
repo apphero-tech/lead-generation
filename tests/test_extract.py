@@ -36,3 +36,15 @@ def test_name_line_with_email():
 def test_title_before_name():
     c = find_candidates(page_lines("<p>President Dr. Stuart R. Bell</p>"), "u")[0]
     assert (c.first_name, c.last_name, c.profile_id) == ("Stuart", "Bell", "head")
+
+
+def test_bio_sentences():
+    from leadgen.extract import bio_candidates
+    def got(t):
+        return [(c.first_name, c.last_name, c.profile_id, c.found_title) for c in bio_candidates(t, "u")]
+    assert got("Dr. Sandra B. Richtermeyer has served as President of Nevada State University since August 2026.") \
+        == [("Sandra", "Richtermeyer", "head", "President")]
+    assert got("Maria Gomez serves as Director of Admissions at the college.") \
+        == [("Maria", "Gomez", "adm_dir", "Director of Admissions")]
+    assert got("Ann Lee joined Nevada State in 2020 as Registrar and leads records.")[0][3] == "Registrar"
+    assert got("Nevada State University is the fastest growing university in Nevada.") == []

@@ -245,9 +245,14 @@ class Crawler:
         while heap and fetched < self.s.max_pages_per_institution:
             neg, depth, _, url = heapq.heappop(heap)
             host = urlparse(url).netloc
-            if per_host.get(host, 0) >= self.s.max_pages_per_host:
-                continue  # spread the budget over many offices instead of one big site
+            section = section_of(url)
+            # Spread the budget over many offices: per sub-site (UF: admissions.ufl.edu...) AND per
+            # top-level section of a site (Nevada State: nevadastate.edu/admissions/, /community/...).
+            if per_host.get(host, 0) >= self.s.max_pages_per_host or \
+                    per_host.get(section, 0) >= self.s.max_pages_per_section:
+                continue
             per_host[host] = per_host.get(host, 0) + 1
+            per_host[section] = per_host.get(section, 0) + 1
             if self.progress:
                 self.progress.check()
             row = self.fetch(url, refresh)
@@ -312,6 +317,13 @@ class Crawler:
                 else:
                     urls.append(normalize_url(loc))
         return [u for u in urls if u]
+
+
+def section_of(url: str) -> str:
+    """'https://x.edu/admissions/tours/' -> 'x.edu/admissions' (the site's top-level section)."""
+    p = urlparse(url)
+    first = next((seg for seg in p.path.split("/") if seg), "")
+    return f"{p.netloc}/{first.lower()}"
 
 
 def normalize_url(url: str) -> str:
