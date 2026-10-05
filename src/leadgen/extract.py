@@ -74,7 +74,33 @@ def page_lines(html: str) -> List[str]:
         line = re.sub(r"\s+", " ", re.sub(r"[\ue000-\uf8ff]", "", raw)).strip()
         if line and re.search(r"[A-Za-z0-9]", line):
             lines.append(line)
-    return lines
+    return merge_split_names(lines)
+
+
+NAME_TOKEN = re.compile(r"^[A-Z][a-zA-Z'’\-]{1,30}$")
+
+
+def merge_split_names(lines: List[str]) -> List[str]:
+    """Directories that print 'Carroll' / 'Nicholas' / 'Nicholas.Carroll@x.edu' on separate lines:
+    join the two name lines into 'Nicholas Carroll' when a nearby email confirms who it is."""
+    out: List[str] = []
+    i = 0
+    while i < len(lines):
+        a = lines[i]
+        b = lines[i + 1] if i + 1 < len(lines) else ""
+        if NAME_TOKEN.match(a) and NAME_TOKEN.match(b):
+            near = [e for l in lines[i + 2:i + 5] for e in EMAIL_RE.findall(l)]
+            if any(email_matches_name(e, b, a) for e in near):      # "Last" then "First"
+                out.append(f"{b} {a}")
+                i += 2
+                continue
+            if any(email_matches_name(e, a, b) for e in near):      # "First" then "Last"
+                out.append(f"{a} {b}")
+                i += 2
+                continue
+        out.append(a)
+        i += 1
+    return out
 
 
 LEADING_TITLE = re.compile(r"^(President|Chancellor|Director|Executive Director|Campus Director|CEO)\s+(.+)$")

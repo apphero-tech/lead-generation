@@ -40,10 +40,13 @@ POSITIVE = {
 NEGATIVE = re.compile(
     r"(calendar|event|login|signon|sso|cart|catalog|course|athletic|sports|ticket|weather|webmail|"
     r"(?<!site)maps?\b|campus-map|virtual-tour|apply|application|portal|canvas|elearning|privacy|accessib|feed|wp-json|"
-    r"/tag/|/category/|/author/|\?share=|replytocom|print=|/page/\d+|/search|\.(pdf|docx?|xlsx?|pptx?|"
+    r"/tag/|/category/|/author/|\?share=|replytocom|print=|/search|\.(pdf|docx?|xlsx?|pptx?|"
     r"jpe?g|png|gif|svg|webp|mp4|mp3|zip|ics)$)",
     re.I,
 )
+# Paginated listings: followed for directories (all pages of a staff directory), never for blogs.
+PAGINATION = re.compile(r"(/page/\d+|[?&](paged?|pg)=\d+)", re.I)
+DIRECTORY_LIKE = re.compile(r"(director(y|ies)|staff|people|team|faculty|employees|personnel)", re.I)
 NEWS = re.compile(r"(/news/|/press|/stories/|/20\d\d/\d\d/|/blog/)", re.I)
 EXTERNAL_OK = re.compile(r"(foundation|alumni|giving|advancement)", re.I)
 # Third-party platforms whose pages describe the platform's own staff, not the institution's.
@@ -94,6 +97,8 @@ def mentions_campus(text: str, slugs) -> bool:
 def score_link(url: str, anchor: str, slugs=()) -> int:
     text = (url + " " + anchor).lower()
     if NEGATIVE.search(url) or NON_PROD_HOST.search(urlparse(url).netloc):
+        return -1
+    if PAGINATION.search(url) and not DIRECTORY_LIKE.search(url):
         return -1
     score = sum(w for k, w in POSITIVE.items() if k in text)
     if slugs and mentions_campus(text, slugs):

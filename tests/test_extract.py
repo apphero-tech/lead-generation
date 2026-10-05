@@ -55,3 +55,20 @@ def test_icon_glyph_lines_ignored():
             "<i></i><p>(702) 772-5161</p><i></i><p>erin.keller@n.edu</p>")
     c = find_candidates(page_lines(html), "u")[0]
     assert c.email == "erin.keller@n.edu" and c.phone == "(702) 992-2356"
+
+
+def test_split_name_lines_in_directories():
+    from leadgen.directory import parse_results
+    html = ("<div>Department of Humanities</div><div>Carroll</div><div>Nicholas</div>"
+            "<a href='mailto:Nicholas.Carroll@n.edu'>Nicholas.Carroll@n.edu</a><div>(702) 992-2696</div>"
+            "<div>Department of Physical and Life Sciences</div><div>Batiste</div><div>Heidi</div>")
+    assert "Nicholas Carroll" in page_lines(html)
+    assert "Batiste" in page_lines(html)  # no email to confirm: left untouched
+    hit = parse_results(html, "Nicholas", "Carroll")
+    assert hit.email == "nicholas.carroll@n.edu" and hit.phone == "(702) 992-2696"
+
+
+def test_directory_pagination_followed_blog_pagination_not():
+    from leadgen.crawler import score_link
+    assert score_link("https://n.edu/faculty-directory/page/2/", "") >= 0
+    assert score_link("https://n.edu/news/page/2/", "") == -1

@@ -32,3 +32,12 @@ def test_unit_from_page_title():
     assert unit_from_title("Advancement Staff | College of Engineering", "eng.u.edu") \
         == "College of Engineering"
     assert unit_from_title("Home", "it.u.edu") == "it.u.edu"
+
+
+def test_header_search_box_does_not_hide_the_directory_form():
+    html = ('<form action="https://n.edu"><input type="search" name="s"></form>'
+            '<form id="faculty-filter-form" method="GET" action="https://n.edu/faculty-directory/">'
+            '<input type="text" name="first_name"><input type="text" name="last_name"><select name="department">'
+            '<option value="">All</option></select></form>')
+    f = analyse_form(html, "https://n.edu/faculty-directory/")
+    assert f.action == "https://n.edu/faculty-directory/" and (f.first_field, f.last_field) == ("first_name", "last_name")

@@ -83,8 +83,16 @@ class DirectoryHit:
 
 
 def analyse_form(html: str, page_url: str) -> Optional[DirectoryForm]:
-    """Find a people-search form on a page and describe how to fill it."""
+    """Find the people-search form on a page and describe how to fill it. A form with first/last
+    name fields wins over a single search box (often the site-wide search in the page header)."""
+    forms = [f for f in _candidate_forms(html, page_url)]
+    forms.sort(key=lambda f: not (f.first_field and f.last_field))
+    return forms[0] if forms else None
+
+
+def _candidate_forms(html: str, page_url: str):
     soup = BeautifulSoup(html, "html.parser")
+    root = "{0.scheme}://{0.netloc}".format(urlparse(page_url))
     for form in soup.find_all("form"):
         action = urljoin(page_url, form.get("action") or page_url)
         texts = [i for i in form.find_all("input") if (i.get("type") or "text").lower() in ("text", "search")]
@@ -94,8 +102,9 @@ def analyse_form(html: str, page_url: str) -> Optional[DirectoryForm]:
         query = next((n for n in names if QUERY_FIELD.match(n)), "")
         if not (first and last) and not query:
             continue
-        if not (first and last) and SITE_SEARCH_ACTION.search(action) and not DIRECTORY_URL.search(action):
-            continue  # the site-wide search box, not a people directory
+        if not (first and last) and not DIRECTORY_URL.search(action) and (
+                SITE_SEARCH_ACTION.search(action) or action.rstrip("/") == root or query == "s"):
+            continue  # the site-wide search box (e.g. WordPress "?s="), not a people directory
         fixed: Dict[str, str] = {}
         for inp in form.find_all("input"):
             name, typ = inp.get("name"), (inp.get("type") or "text").lower()
@@ -111,9 +120,8 @@ def analyse_form(html: str, page_url: str) -> Optional[DirectoryForm]:
             if sel.get("name"):
                 opt = sel.find("option", selected=True) or sel.find("option")
                 fixed[sel["name"]] = opt.get("value", opt.get_text(strip=True)) if opt else ""
-        return DirectoryForm(page_url, action, (form.get("method") or "get").lower(),
-                             first, last, "" if (first and last) else query, fixed)
-    return None
+        yield DirectoryForm(page_url, action, (form.get("method") or "get").lower(),
+                            first, last, "" if (first and last) else query, fixed)
 
 
 def _norm(s: str) -> str:
