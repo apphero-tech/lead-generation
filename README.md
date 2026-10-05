@@ -6,11 +6,14 @@ plus system offices. No paid API is used.
 
 ## Démarrage rapide (FR)
 
-**Option A — dans le navigateur, sans rien installer (GitHub Codespaces)**
-1. Sur la page GitHub du dépôt : bouton vert **Code** → onglet **Codespaces** → **Create codespace on main**.
-2. Quand le terminal est prêt, taper : `tool ui`
-3. GitHub ouvre l'interface dans un nouvel onglet (sinon : onglet **Ports**, ligne 8765, cliquer sur le globe).
-4. Choisir l'état (et éventuellement la ville ou l'établissement), **Lancer la recherche**, puis **Télécharger le fichier Excel**.
+**Option A — un lien, rien à installer (GitHub Codespaces)**
+
+[![Ouvrir l'outil](https://github.com/codespaces/badge.svg)](https://codespaces.new/apphero-tech/lead-generation?quickstart=1)
+
+1. Cliquer sur le bouton ci-dessus (ou ouvrir https://codespaces.new/apphero-tech/lead-generation?quickstart=1), se connecter à GitHub, puis **Create codespace** (ou **Resume** les fois suivantes).
+2. Attendre environ 1 minute : l'interface s'ouvre toute seule dans un nouvel onglet.
+   Sinon : onglet **Ports** en bas, ligne « Interface » (8765), cliquer sur le globe.
+3. Choisir l'état (et éventuellement la ville ou l'établissement), **Lancer la recherche**, puis **Télécharger le fichier Excel**.
 
 Le Codespace s'arrête après une période d'inactivité : pour un état complet (plusieurs heures),
 préférer l'option B sur un ordinateur qui reste allumé.
