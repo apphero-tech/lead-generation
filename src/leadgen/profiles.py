@@ -141,7 +141,8 @@ PROFILES: List[Profile] = [
         close=(r"\bchief (technology|digital) officer\b",
                r"\b(executive )?director\b[^.]{0,20}\binformation technology\b"),
         exclude=(r"\b(associate|assistant) director\b",),
-        fallback=(r"\b(information technology|technology|technical services) (manager|coordinator|administrator|specialist|lead)\b",
+        fallback=(r"(?<!audiovisual )(?<!av )(?<!classroom )(?<!media )(?<!instructional )(?<!educational )"
+                  r"\b(information technology|technology|technical services) (manager|coordinator|administrator|specialist|lead)\b",
                   r"\b(network|systems?) (administrator|manager)\b"),
         duties="Leads the institution's information technology strategy, infrastructure and enterprise systems.",
     ),

@@ -67,3 +67,8 @@ def test_it_and_crm_titles():
 
 def test_former_titles_rejected():
     assert ids("Former Chief Information Officer of AstraZeneca") == set()
+
+
+def test_audiovisual_technician_is_not_it_leadership():
+    assert ids("Classroom/Events Audiovisual Technology Coordinator") == set()
+    assert ("cio", "fallback") in ids("IT Manager")
