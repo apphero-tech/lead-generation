@@ -95,3 +95,11 @@ def test_president_outranks_bare_director():
     cs = [Candidate("Rik", "Gad", "head", "exact", "Director", "https://n.edu/a"),
           Candidate("Sandra", "Rich", "head", "exact", "President", "https://n.edu/about/leadership/")]
     assert [c.first_name for c in filter_heads(cs, "https://n.edu/")] == ["Sandra"]
+
+
+def test_sitemaps_and_campus_maps():
+    from leadgen.crawler import score_link
+    assert score_link("https://n.edu/page-sitemap.xml", "") >= 0
+    assert score_link("https://n.edu/campus-map/", "") == -1
+    assert score_link("https://n.edu/maps/", "") == -1
+    assert score_link("https://n.edu/unit/development-alumni/", "") > 0

@@ -83,7 +83,7 @@ PROFILES: List[Profile] = [
     # ADVANCEMENT / FOUNDATION
     Profile(
         "adv_vp", "Advancement / Foundation", "VP Advancement",
-        exact=(NOT_AVP + r"\bvice (president|chancellor)\b[^.]{0,60}\b(advancement|development|alumni)",),
+        exact=(NOT_AVP + r"\bvice (president|chancellor)\b[^.]{0,60}\b(advancement|development|alumni|philanthrop\w*|fundraising)",),
         exclude=(OTHER_DEVELOPMENT,),
         duties="Leads fundraising, alumni relations and advancement operations for the institution.",
     ),
@@ -95,7 +95,7 @@ PROFILES: List[Profile] = [
     ),
     Profile(
         "adv_avp", "Advancement / Foundation", "Associate VP Advancement",
-        exact=(r"\b(associate|assistant) vice (president|chancellor)\b[^.]{0,60}\b(advancement|development|alumni)",),
+        exact=(r"\b(associate|assistant) vice (president|chancellor)\b[^.]{0,60}\b(advancement|development|alumni|philanthrop\w*|fundraising)",),
         exclude=(OTHER_DEVELOPMENT,),
         duties="Leads a major area of advancement (e.g. major gifts, development or advancement operations) under the VP.",
     ),
@@ -116,10 +116,12 @@ PROFILES: List[Profile] = [
     ),
     Profile(
         "dev_dir", "Advancement / Foundation", "Director of Development",
-        exact=(r"\bdirector\b[^.]{0,30}\b(development|major gifts)\b",),
+        exact=(r"\bdirector\b[^.]{0,30}\b(development|major gifts|principal gifts|planned giving|annual giving|"
+               r"philanthrop\w*|fundraising|donor relations|stewardship)\b",),
         exclude=(r"\b(associate|assistant) director\b",
                  OTHER_DEVELOPMENT, r"\bapplications?\b", r"\bdevelopment communications\b"),
-        fallback=(r"\b(development|advancement|fundraising|annual giving|major gifts?) (officer|coordinator|manager|associate|specialist)\b",),
+        fallback=(r"\b(development|advancement|fundraising|annual giving|major gifts?|philanthropy|donor relations) "
+                  r"(officer|coordinator|manager|associate|specialist)\b",),
         duties="Raises funds from individual and institutional donors, typically for a college, unit or campaign.",
     ),
     Profile(
@@ -174,8 +176,11 @@ PROFILES: List[Profile] = [
     Profile(
         "wf_dir", "Continuing Education / Workforce", "Director of Workforce Development",
         exact=(r"\b(director|dean|vice president|vice provost|executive director|provost)\b[^.]{0,50}\bworkforce\b",),
+        close=(r"\bdirector\b[^.]{0,40}\b(career (services|development|center|readiness)|employer relations|"
+               r"apprenticeships?|corporate training|community education)\b",),
         exclude=(r"\b(associate|assistant) director\b",),
-        fallback=(r"\b(internship|apprenticeship|career services|workforce|career|employer relations) (coordinator|manager|specialist|advisor)\b",),
+        fallback=(r"\b(internship|apprenticeship|career services|workforce|career|employer relations) (coordinator|manager|specialist|advisor)\b",
+                  r"\b(coordinator|manager|specialist|advisor)\b[^.]{0,30}\b(employer relations|internships?|apprenticeships?|workforce)\b"),
         duties="Leads workforce training programs, employer partnerships and career/technical education.",
     ),
 ]

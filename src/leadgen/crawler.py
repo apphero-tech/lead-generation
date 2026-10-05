@@ -30,6 +30,8 @@ POSITIVE = {
     "contact": 3, "about": 2, "president": 4, "office-of-the-president": 6,
     "enrollment": 6, "admissions": 4, "admission": 4, "registrar": 6,
     "advancement": 7, "foundation": 6, "development": 3, "alumni": 5, "giving": 3,
+    "philanthropy": 7, "philanthropic": 6, "donor": 5, "gift": 3, "give": 2, "fundraising": 6,
+    "career-services": 5, "career-center": 5, "employer": 3, "registrar": 6,
     "information-technology": 6, "technology": 3, "cio": 6, "enterprise": 4, "crm": 5,
     "continuing": 6, "professional-education": 6, "executive-education": 6, "extended": 4,
     "workforce": 6, "professional-development": 3,
@@ -37,7 +39,7 @@ POSITIVE = {
 }
 NEGATIVE = re.compile(
     r"(calendar|event|login|signon|sso|cart|catalog|course|athletic|sports|ticket|weather|webmail|"
-    r"map|virtual-tour|apply|application|portal|canvas|elearning|privacy|accessib|feed|wp-json|"
+    r"(?<!site)maps?\b|campus-map|virtual-tour|apply|application|portal|canvas|elearning|privacy|accessib|feed|wp-json|"
     r"/tag/|/category/|/author/|\?share=|replytocom|print=|/page/\d+|/search|\.(pdf|docx?|xlsx?|pptx?|"
     r"jpe?g|png|gif|svg|webp|mp4|mp3|zip|ics)$)",
     re.I,
@@ -312,7 +314,9 @@ class Crawler:
             locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", resp.text)
             for loc in locs:
                 if loc.endswith(".xml") or "sitemap" in loc.split("/")[-1]:
-                    if score_link(loc, "") >= 0 and not re.search(r"(post|news|event|tag|category|product)", loc):
+                    # Sub-sitemaps: skip only news/blog/product feeds (never score them as pages:
+                    # "sitemap" itself must not trip the "map" exclusion).
+                    if not re.search(r"(post|news|event|tag|category|product|attachment|author)", loc):
                         queue.append(loc)
                 else:
                     urls.append(normalize_url(loc))

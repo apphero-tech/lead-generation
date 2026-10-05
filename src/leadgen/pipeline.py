@@ -14,7 +14,8 @@ from .crawler import NEWS, Crawler, campus_slugs, mentions_campus, registered_do
 from .db import get_step, set_step
 from .directory import Directory, DirectoryForm, DirectoryHit
 from .email_pattern import deduce, detect_pattern, name_in_email
-from .extract import Candidate, find_candidates, name_email_pairs, page_lines, parse_profile, profile_links
+from .extract import (Candidate, find_candidates, name_email_pairs, page_lines, page_name_email_pairs,
+                      parse_profile, profile_links)
 from .names import name_key, parse_name
 from .profiles import PROFILE_BY_ID, match_staff, match_title, staff_rank
 
@@ -86,6 +87,12 @@ UNIT_WORDS = re.compile(
     r"\b(college|school|department|dept|foundation|office|center|centre|institute|division|libraries|"
     r"health|online|program|alumni|advancement|admissions|registrar|enrollment|information technology|"
     r"continuing|workforce|graduate|undergraduate)\b", re.I)
+
+
+def page_subject(page_title: str) -> str:
+    """'Career Services Center - Nevada State University' -> 'Career Services Center'."""
+    first = re.split(r"\s[|–—:\-]\s", page_title or "")[0].strip()
+    return first if 3 <= len(first) <= 60 and not re.search(r"\b(home|welcome)\b", first, re.I) else ""
 
 
 def unit_from_title(page_title: str, host: str) -> str:
@@ -245,9 +252,11 @@ class Pipeline:
         pairs_by_host: Dict[tuple, list] = defaultdict(list)  # (web host, mail domain) -> pairs
         domains_by_host: Dict[str, Counter] = defaultdict(Counter)
         for r in rows:
-            cands.extend(find_candidates(page_lines(r["html"]), r["url"]))
+            lines = page_lines(r["html"])
+            cands.extend(find_candidates(lines, r["url"], context=page_subject(self._titles.get(r["url"], ""))))
             host = urlparse(r["url"]).netloc
-            for first, last, email in name_email_pairs(r["html"]):
+            pairs = list(name_email_pairs(r["html"])) + list(page_name_email_pairs(lines))
+            for first, last, email in {p[2]: p for p in pairs}.values():
                 domain = email.split("@")[1]
                 pairs_by_domain[domain].append((first, last, email))
                 pairs_by_host[(host, domain)].append((first, last, email))

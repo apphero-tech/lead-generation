@@ -70,8 +70,9 @@ def page_lines(html: str) -> List[str]:
     text = re.sub(r"\s*[\[(]\s*dot\s*[\])]\s*", ".", text, flags=re.I)
     lines = []
     for raw in text.split("\n"):
-        line = re.sub(r"\s+", " ", raw).strip()
-        if line:
+        # Icon-font glyphs (private-use characters) are decoration, not content.
+        line = re.sub(r"\s+", " ", re.sub(r"[\ue000-\uf8ff]", "", raw)).strip()
+        if line and re.search(r"[A-Za-z0-9]", line):
             lines.append(line)
     return lines
 
@@ -144,13 +145,23 @@ def bio_candidates(line: str, url: str) -> List[Candidate]:
     return out
 
 
-def find_candidates(lines: List[str], url: str, matcher=match_title) -> List[Candidate]:
+BARE_TITLE = re.compile(r"^(senior |executive |associate |assistant |interim )?"
+                        r"(vice president|vice chancellor|director|coordinator|manager|dean|officer)$", re.I)
+
+
+def find_candidates(lines: List[str], url: str, matcher=match_title, context: str = "") -> List[Candidate]:
+    """context: the page's own subject (e.g. "Career Services Center"), used to complete bare
+    titles such as "Director" into "Director, Career Services Center"."""
     out: List[Candidate] = []
     if NON_STAFF_PAGE.search(url):
         return out
     names_at = [line_name(l) for l in lines]
     for i, line in enumerate(lines):
         name, title = split_name_title(strip_contact(line))
+        if context and BARE_TITLE.match(title.strip(" ,")):
+            completed = f"{title.strip(' ,')}, {context}"
+            if matcher(completed):
+                title = completed
         matches = matcher(title)
         if not matches:
             if matcher is match_title and len(line) > 40:
@@ -180,7 +191,7 @@ def find_candidates(lines: List[str], url: str, matcher=match_title) -> List[Can
 def scan_context(lines, names_at, title_idx, name_idx, first, last):
     """Look around the person for their email, phone and a sentence describing their role."""
     lo = max(0, min(title_idx, name_idx) - 2)
-    hi = min(len(lines), max(title_idx, name_idx) + 6)
+    hi = min(len(lines), max(title_idx, name_idx) + 8)
     email = ""
     for k in range(lo, hi):
         for addr in EMAIL_RE.findall(lines[k]):
@@ -280,3 +291,17 @@ def parse_profile(html: str, first: str, last: str) -> Tuple[str, str]:
         if email:
             break
     return email, phone
+
+
+def page_name_email_pairs(lines: List[str]) -> Iterable[Tuple[str, str, str]]:
+    """Every (first, last, email) on a page where the email sits next to that person's name and
+    plausibly belongs to them, whatever their job: evidence of the institution's email format."""
+    for i, line in enumerate(lines):
+        name = line_name(line)
+        if not name:
+            continue
+        for k in range(i, min(len(lines), i + 5)):
+            hit = next((a for a in EMAIL_RE.findall(lines[k]) if email_matches_name(a, *name)), None)
+            if hit:
+                yield name[0], name[1], hit.lower()
+                break

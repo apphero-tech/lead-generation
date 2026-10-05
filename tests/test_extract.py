@@ -48,3 +48,10 @@ def test_bio_sentences():
         == [("Maria", "Gomez", "adm_dir", "Director of Admissions")]
     assert got("Ann Lee joined Nevada State in 2020 as Registrar and leads records.")[0][3] == "Registrar"
     assert got("Nevada State University is the fastest growing university in Nevada.") == []
+
+
+def test_icon_glyph_lines_ignored():
+    html = ("<h3>Erin Keller</h3><p>Vice President for Advancement</p><i></i><p>(702) 992-2356</p>"
+            "<i></i><p>(702) 772-5161</p><i></i><p>erin.keller@n.edu</p>")
+    c = find_candidates(page_lines(html), "u")[0]
+    assert c.email == "erin.keller@n.edu" and c.phone == "(702) 992-2356"
