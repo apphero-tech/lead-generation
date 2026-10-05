@@ -175,7 +175,7 @@ class Crawler:
             status = resp.status_code
             ctype = resp.headers.get("Content-Type", "")
             final_url = resp.url
-            if status == 200 and "html" in ctype.lower():
+            if status == 200 and ("html" in ctype.lower() or "xml" in ctype.lower()):
                 body = resp.raw.read(self.s.max_page_bytes, decode_content=True)
                 html = body.decode(resp.encoding or "utf-8", errors="replace")
             resp.close()

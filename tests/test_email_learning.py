@@ -12,7 +12,7 @@ STAFF = """
 
 
 def test_format_learned_from_contacts_own_emails(tmp_path):
-    s = Settings(db_path=tmp_path / "t.db", use_directory_search=False)
+    s = Settings(db_path=tmp_path / "t.db", use_directory_search=False, use_salary_records=False)
     conn = connect(s.db_path)
     conn.execute("INSERT INTO institutions (unitid, state, name, website, is_system) "
                  "VALUES ('1', 'FL', 'S College', 'https://www.s.edu/', 0)")
@@ -36,7 +36,7 @@ def test_profile_page_link_and_parse():
 
 
 def test_format_learned_per_sub_site(tmp_path):
-    s = Settings(db_path=tmp_path / "t.db", use_directory_search=False)
+    s = Settings(db_path=tmp_path / "t.db", use_directory_search=False, use_salary_records=False)
     conn = connect(s.db_path)
     conn.execute("INSERT INTO institutions (unitid, state, name, website, is_system) "
                  "VALUES ('1', 'FL', 'N University', 'https://www.n.edu/', 0)")
@@ -56,7 +56,7 @@ def test_format_learned_per_sub_site(tmp_path):
 
 
 def test_format_learned_from_any_staff_on_the_site(tmp_path):
-    s = Settings(db_path=tmp_path / "t.db", use_directory_search=False)
+    s = Settings(db_path=tmp_path / "t.db", use_directory_search=False, use_salary_records=False)
     conn = connect(s.db_path)
     conn.execute("INSERT INTO institutions (unitid, state, name, website, is_system) "
                  "VALUES ('1', 'NV', 'N State', 'https://n.edu/', 0)")

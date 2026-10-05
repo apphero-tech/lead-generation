@@ -17,16 +17,20 @@ from .email_pattern import deduce, detect_pattern, name_in_email
 from .extract import (Candidate, find_candidates, name_email_pairs, page_lines, page_name_email_pairs,
                       parse_profile, profile_links)
 from .names import name_key, parse_name
+from .salary_records import SalaryRecords
 from .profiles import PROFILE_BY_ID, match_staff, match_title, staff_rank
 
 log = logging.getLogger(__name__)
 
 QUALITY_RANK = {"exact": 0, "close": 1, "fallback": 2}
+# Bump when the crawler finds pages it used to miss: institutions read by an older crawler are
+# read again on their next run (cached pages are not downloaded twice, only new ones are).
+CRAWLER_VERSION = "crawler-v2"
 IPEDS_SOURCE = "https://nces.ed.gov/collegenavigator/?id={unitid}"
 
 
 # Junior "fallback" titles are dropped at institutions where this many people match properly.
-FALLBACK_MAX_PEOPLE = 10
+FALLBACK_MAX_PEOPLE = 25
 
 
 def merge_candidates(cands: List[Candidate], max_per_profile: int) -> List[dict]:
@@ -209,6 +213,7 @@ class Pipeline:
         self.progress = progress
         self.crawler = Crawler(conn, settings, progress)
         self.directory = Directory(conn, self.crawler)
+        self.salary = SalaryRecords(self.crawler)
 
     def run_institution(self, inst: dict, refresh: bool = False) -> None:
         unitid = inst["unitid"]
@@ -216,14 +221,17 @@ class Pipeline:
             set_step(self.conn, unitid, "crawl", "skipped", "no website in IPEDS / systems.json")
             set_step(self.conn, unitid, "extract", "skipped", "no website")
             return
-        if refresh or get_step(self.conn, unitid, "crawl") != "done":
+        row = self.conn.execute("SELECT status, detail FROM step_status WHERE unitid = ? AND step = 'crawl'",
+                                (unitid,)).fetchone()
+        outdated = not row or row["status"] != "done" or CRAWLER_VERSION not in (row["detail"] or "")
+        if refresh or outdated:
             set_step(self.conn, unitid, "crawl", "running")
             if self.progress:
                 self.progress.update(stage="Lecture du site web")
             n = self.crawler.crawl(unitid, inst["website"], refresh=refresh,
                                    campus_terms=campus_terms(inst) if shared_site(inst) else None)
             set_step(self.conn, unitid, "crawl", "done",
-                     f"{n} pages" if n else f"0 pages: {self.crawler.last_block_reason}")
+                     (f"{n} pages" if n else f"0 pages: {self.crawler.last_block_reason}") + f" [{CRAWLER_VERSION}]")
         elif self.progress:
             # Already read on a previous run: count its cached pages so the counter stays meaningful.
             cached = self.conn.execute(
@@ -247,6 +255,7 @@ class Pipeline:
         self._main_phone = {unitid: inst.get("main_phone") or ""}
         self._inst = inst
         self._host_patterns: Dict[tuple, tuple] = {}
+        self._salary_years = {}
         cands: List[Candidate] = []
         pairs_by_domain: Dict[str, list] = defaultdict(list)
         pairs_by_host: Dict[tuple, list] = defaultdict(list)  # (web host, mail domain) -> pairs
@@ -263,6 +272,16 @@ class Pipeline:
                 domains_by_host[host][domain] += 1
 
         base = registered_domain(urlparse(inst["website"]).netloc)
+        # Public salary records (e.g. TransparentNevada): target people the website does not name.
+        self._salary_years: Dict[str, int] = {}
+        if self.s.use_salary_records:
+            if self.progress:
+                self.progress.update(stage="Lecture des registres publics de salaires")
+            website_names = {name_key(c.first_name, c.last_name) for c in cands}
+            sal_cands, self._salary_years = self.salary.candidates(inst, website_names)
+            cands.extend(sal_cands)
+            for url, year in self._salary_years.items():
+                page_info[url] = (f"{year}-12-31", None)
         cands = filter_heads(cands, inst["website"])
         if not cands:
             # Nobody for any target profile: list the staff the website does name (most senior first).
@@ -443,6 +462,11 @@ class Pipeline:
                 phone_status = "not found"
         if ipeds_only:
             reasons.append("from the federal IPEDS directory (2024 data), not seen on the website; confirm still in role")
+        all_src = [u for r in p["roles"].values() for u in r["sources"]]
+        sal = sorted({self._salary_years[u] for u in all_src if u in self._salary_years})
+        if sal and all(u in self._salary_years or u.startswith("https://nces.ed.gov/") for u in all_src):
+            reasons.append(f"found only in public salary records ({sal[-1]}), not on the institution's website: "
+                           "confirm the current role")
         all_sources: List[str] = []
         dates: List[str] = []
         verified: List[str] = []
@@ -479,8 +503,11 @@ class Pipeline:
             main_pid = sorted(p["roles"], key=lambda x: QUALITY_RANK[p["roles"][x]["quality"]])[0]
             resp = PROFILE_BY_ID[main_pid].duties + " (typical scope for this title)"
 
-        first_src = all_sources[0] if all_sources else ""
+        site_sources = [u for u in all_sources if u not in self._salary_years and not u.startswith("https://nces.ed.gov/")]
+        first_src = (site_sources or all_sources or [""])[0]
         unit = unit_from_title(self._titles.get(first_src, ""), urlparse(first_src).netloc)
+        if not site_sources and first_src in self._salary_years:
+            unit = "Public salary records"
         level = contact_level(self._inst, all_sources, self._titles)
         if level.startswith("network"):
             unit = "Network headquarters / all campuses"

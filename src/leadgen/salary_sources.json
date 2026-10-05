@@ -1,0 +1,6 @@
+{
+  "_comment": "Public salary-record sites per state (same platform layout: /salaries/<year>/<employer-slug>?page=N, robots.txt allows these listing pages). system_employers: system-wide lists that mix several campuses; a person from them is attributed to a campus only if also listed in that campus's own (older) list or on its website. Add a state here once its site has been checked (robots.txt, terms).",
+  "NV": {"site": "https://transparentnevada.com",
+         "system_employers": ["nevada-system-higher-education-system-administrati"]},
+  "CA": {"site": "https://transparentcalifornia.com", "system_employers": []}
+}

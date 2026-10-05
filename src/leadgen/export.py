@@ -46,6 +46,7 @@ README = [
     ("responsibilities", "'(from source page)' = sentence taken from the page; '(typical scope for this title)' = generic description of the job."),
     ("linkedin_search", "Click to open a LinkedIn people search for this person (name + institution) in your browser, to check their current role by hand. The tool itself never visits LinkedIn."),
     ("contact_level", "'this campus' = found on this institution's own pages (or IPEDS names this campus's own chief). 'network-wide' = the institution is one campus of a chain sharing one website (e.g. 20 'Arizona College of Nursing' campuses); the person was found on the shared site, so is probably at headquarters or another campus."),
+    ("public salary records", "Some people come from official public salary records (e.g. TransparentNevada, which publishes Nevada public employees' names and job titles). check_reasons says when a person was found only there, with the year of the record."),
     ("Coverage sheet", "One row per institution: who was found for each of the 18 profiles. Empty = nobody found (never invented)."),
     ("phone_status = main switchboard (IPEDS)", "The institution's general phone number from the federal IPEDS directory, not a direct line."),
     ("closest title", "check_reasons 'this is the closest title at this institution' = nobody holds the target job; this is the nearest role (common at small schools)."),
@@ -216,7 +217,7 @@ def export_state(conn, state: str, out_dir: Path, unitids: Optional[List[str]] =
         crawl = conn.execute("SELECT detail FROM step_status WHERE unitid = ? AND step = 'crawl'",
                              (i["unitid"],)).fetchone()
         if crawl and (crawl["detail"] or "").startswith("0 pages:"):
-            status += " - " + crawl["detail"][9:]
+            status += " - " + crawl["detail"][9:].split(" [")[0]
         data.append([i["name"], i["website"], i["sector"], status, f"{len(found)}/{len(PROFILES)}"]
                     + [", ".join(found.get(p.id, [])) for p in PROFILES])
     _sheet(cov, header, data, {"institution": 34, "website": 28, "status": 22})

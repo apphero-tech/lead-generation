@@ -35,6 +35,8 @@ class Settings:
     broad_max_people: int = 15
     # Profile pages opened (name links) for people without an email, per institution.
     max_profile_fetches_per_institution: int = 80
+    # Public salary records (salary_sources.json: e.g. TransparentNevada) as an extra source of names.
+    use_salary_records: bool = True
     # Look people up in the institution's own directory search form when one is found.
     use_directory_search: bool = True
     # A source older than this is flagged for manual check.

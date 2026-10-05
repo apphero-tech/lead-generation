@@ -20,7 +20,7 @@ leadgen = "leadgen.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-leadgen = ["systems.json", "first_names.txt"]
+leadgen = ["systems.json", "first_names.txt", "salary_sources.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
